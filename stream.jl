@@ -11,7 +11,7 @@ mutable struct TokenStream <: IO
 end
 
 TokenStream(response::Response, parse_line::Function) =
-  TokenStream(response, parse_line, IOBuffer(), (token(0), token(0)), false, "")
+  TokenStream(response, parse_line, PipeBuffer(), (token(0), token(0)), false, "")
 
 "Wrap a parse_event function to handle SSE protocol (data: prefix, [DONE] sentinel)"
 sse(parse_event::Function) = (s::TokenStream, line::AbstractString) -> begin

@@ -28,6 +28,16 @@ end
   @test LLM("gpt-4", config).session.uri.host == "api.openai.com"
 end
 
+@testset "grok-4-1-fast-reasoning" begin
+  llm = LLM("grok-4-1-fast-reasoning")
+  stream = llm("You are a helpful assistant", "Reply with just the word 'hello'"; temperature=0.0)
+  result = read(stream, String)
+  @test occursin("hello", lowercase(result))
+  @test stream.tokens[1] > token(0) # input tokens tracked
+  @test stream.tokens[2] > token(0) # output tokens tracked
+  close(llm)
+end
+
 @testset "get_pricing" begin
   @test get_pricing("nonexistent-model") == (0.0USD/Mtoken(1), 0.0USD/Mtoken(1))
   (input_price, output_price) = get_pricing("claude-sonnet-4-5-20250929")

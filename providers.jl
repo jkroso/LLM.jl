@@ -30,7 +30,7 @@ function OpenAI(model::String, api_key::String, base_url::String)
 end
 OpenAI(model::String, api_key::String) = OpenAI(model, api_key, "https://api.openai.com")
 
-function openai_parse_event(s::TokenStream, data::String)
+function openai_parse_event(s::TokenStream, data::AbstractString)
   evt = try parse_json(data) catch; return end
   choices = get(evt, "choices", nothing)
   if choices !== nothing && !isempty(choices)
@@ -73,7 +73,7 @@ function Anthropic(model::String, api_key::String)
   finalizer(finalize, Anthropic(model, api_key, Session(uri=uri), URI("/v1/messages", defaults=uri), get_pricing(model)))
 end
 
-function anthropic_parse_event(s::TokenStream, data::String)
+function anthropic_parse_event(s::TokenStream, data::AbstractString)
   evt = try parse_json(data) catch; return end
   typ = get(evt, "type", "")
   if typ == "content_block_delta"
@@ -130,7 +130,7 @@ function Google(model::String, api_key::String)
   finalizer(finalize, Google(model, api_key, Session(uri=base), uri, get_pricing(model)))
 end
 
-function google_parse_event(s::TokenStream, data::String)
+function google_parse_event(s::TokenStream, data::AbstractString)
   evt = try parse_json(data) catch; return end
   candidates = get(evt, "candidates", nothing)
   if candidates !== nothing && !isempty(candidates)
