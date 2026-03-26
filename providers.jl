@@ -10,7 +10,7 @@ abstract type LLM end
 
 Base.close(llm::LLM) = close(llm.session)
 
-finalize(llm::LLM) = isopen(llm.session) && close(llm.session)
+finalize(llm::LLM) = try isopen(llm.session) && close(llm.session) catch end
 
 post(s::Session, uri::URI; meta=Header()) = Request{:POST}(uri=uri, sock=connect(s), meta=meta)
 
