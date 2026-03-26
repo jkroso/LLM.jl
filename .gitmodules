@@ -1,0 +1,4 @@
+[submodule "models.dev"]
+	path = models.dev
+	url = https://github.com/sst/models.dev.git
+	ignore = untracked
