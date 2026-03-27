@@ -1,11 +1,11 @@
 @use "github.com/jkroso/HTTP.jl/client" Header parseURI send
 @use "github.com/jkroso/HTTP.jl/client/Session" Session
-@use "github.com/jkroso/URI.jl" URI
 @use "github.com/jkroso/JSON.jl" parse_json
 @use "github.com/jkroso/JSON.jl/write" JSON
+@use "github.com/jkroso/URI.jl" URI
 @use "../abstract_provider" LLM post finalize
-@use "../stream" TokenStream sse
 @use "../pricing" Price get_pricing token
+@use "../stream" TokenStream sse
 
 mutable struct Anthropic <: LLM
   model::String
@@ -16,7 +16,7 @@ mutable struct Anthropic <: LLM
 end
 
 function Anthropic(model::String, api_key::String)
-  uri = parseURI("https://api.anthropic.com")
+  uri = parseURI(get(ENV, "ANTHROPIC_BASE_URL", "https://api.anthropic.com"))
   finalizer(finalize, Anthropic(model, api_key, Session(uri=uri), URI("/v1/messages", defaults=uri), get_pricing(model)))
 end
 

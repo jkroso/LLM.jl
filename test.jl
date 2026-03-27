@@ -1,10 +1,11 @@
 using Test
 @use "./main" LLM
 @use "./providers" OpenAI Anthropic Google Ollama
-@use "./abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message
+@use "./abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
 @use "./pricing" get_pricing Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "./providers/openai" to_openai
+@use "./stream" from_json
 @use "github.com/jkroso/JSON.jl/write" JSON
 
 @testset "LLM" begin
@@ -114,7 +115,7 @@ end
   stream = llm(messages; temperature=0.0)
   result = read(stream, String)
   @test occursin("Alice", result)
-  @test stream.finish_reason in ("stop", "end_turn")
+  @test stream.finish_reason == FinishReason.stop
   close(llm)
 end
 
@@ -130,7 +131,7 @@ end
   ]
   stream = llm(messages; temperature=0.0, tools=tools)
   read(stream, String) # drain the stream
-  @test stream.finish_reason == "tool_calls"
+  @test stream.finish_reason == FinishReason.tool_calls
   @test length(stream.tool_calls) >= 1
   @test stream.tool_calls[1].name == "get_temperature"
   @test haskey(stream.tool_calls[1].arguments, "city")
@@ -147,6 +148,6 @@ end
   result = read(stream, JSON)
   @test result isa Dict
   @test haskey(result, "greeting")
-  @test stream.finish_reason in ("stop", "end_turn")
+  @test stream.finish_reason == FinishReason.stop
   close(llm)
 end

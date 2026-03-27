@@ -1,12 +1,11 @@
-@use "github.com/jkroso/HTTP.jl/client" Header parseURI send
-@use "github.com/jkroso/HTTP.jl/client/Session" Session
-@use "github.com/jkroso/URI.jl" URI
+@use "github.com/jkroso/HTTP.jl/client" Header parseURI send ["Session" Session]
 @use "github.com/jkroso/JSON.jl" parse_json
 @use "github.com/jkroso/JSON.jl/write" JSON
-@use "../abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat
-using Base64
-@use "../stream" TokenStream sse
+@use "github.com/jkroso/URI.jl" URI
+@use "../abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document
 @use "../pricing" Price get_pricing token
+@use "../stream" TokenStream sse
+@use Base64...
 
 mutable struct OpenAI <: LLM
   model::String
@@ -27,17 +26,12 @@ OpenAI(model::String, api_key::String) = OpenAI(model, api_key, "https://api.ope
 to_openai(msg::SystemMessage) = Dict("role" => "system", "content" => msg.text)
 
 function to_openai(msg::UserMessage)
-  if isempty(msg.images) && isempty(msg.audio)
-    return Dict("role" => "user", "content" => msg.text)
-  end
-  parts = Any[Dict("type" => "text", "text" => msg.text)]
-  for img in msg.images
-    push!(parts, to_openai(img))
-  end
-  for aud in msg.audio
-    push!(parts, to_openai(aud))
-  end
-  Dict("role" => "user", "content" => parts)
+  !isempty(msg.documents) && error("OpenAI does not support document content")
+  isempty(msg.images) && isempty(msg.audio) && return Dict("role" => "user", "content" => msg.text)
+  Dict("role" => "user", "content" => Any[
+    Dict("type" => "text", "text" => msg.text),
+    map(to_openai, msg.images)...,
+    map(to_openai, msg.audio)...])
 end
 
 function to_openai(msg::AIMessage)
@@ -68,6 +62,13 @@ end
 to_openai(aud::Audio) = Dict("type" => "input_audio", "input_audio" => Dict("data" => base64encode(aud.data), "format" => aud.format))
 
 to_openai(tool::Tool) = Dict("type" => "function", "function" => Dict("name" => tool.name, "description" => tool.description, "parameters" => tool.parameters))
+
+const OPENAI_FINISH_REASONS = Dict(
+  "stop" => FinishReason.stop,
+  "length" => FinishReason.length,
+  "tool_calls" => FinishReason.tool_calls,
+  "content_filter" => FinishReason.content_filter
+)
 
 function make_openai_parser()
   arg_bufs = Dict{Int, Tuple{String, String, IOBuffer}}() # index -> (id, name, args_buffer)
@@ -100,7 +101,7 @@ function make_openai_parser()
       # Finish reason
       fr = get(choice, "finish_reason", nothing)
       if fr !== nothing
-        s.finish_reason = fr
+        s.finish_reason = get(OPENAI_FINISH_REASONS, fr, FinishReason.stop)
         if !isempty(arg_bufs)
           for idx in sort(collect(keys(arg_bufs)))
             id, name, buf = arg_bufs[idx]
@@ -120,14 +121,16 @@ function make_openai_parser()
 end
 
 function (llm::OpenAI)(messages::Vector{<:Message};
-                        temperature::Float64=0.7,
-                        tools::Vector{Tool}=Tool[],
-                        response_format::Union{ResponseFormat,Nothing}=nothing,
-                        reasoning_effort::Union{ReasoningEffort,Nothing}=nothing)
+                       temperature::Float64=0.7,
+                       max_tokens::Int=8192,
+                       tools::Vector{Tool}=Tool[],
+                       response_format::Union{ResponseFormat,Nothing}=nothing,
+                       reasoning_effort::Union{ReasoningEffort,Nothing}=nothing)
   payload = Dict{String,Any}(
     "model" => llm.model,
     "messages" => [to_openai(m) for m in messages],
     "temperature" => temperature,
+    "max_completion_tokens" => max_tokens,
     "stream" => true,
     "stream_options" => Dict("include_usage" => true))
   !isempty(tools) && (payload["tools"] = [to_openai(t) for t in tools])
