@@ -69,20 +69,54 @@ to_openai(aud::Audio) = Dict("type" => "input_audio", "input_audio" => Dict("dat
 
 to_openai(tool::Tool) = Dict("type" => "function", "function" => Dict("name" => tool.name, "description" => tool.description, "parameters" => tool.parameters))
 
-function openai_parse_event(s::TokenStream, data::AbstractString)
-  evt = try parse_json(data) catch; return end
-  choices = get(evt, "choices", nothing)
-  if choices !== nothing && !isempty(choices)
-    delta = get(choices[1], "delta", nothing)
-    if delta !== nothing
-      content = get(delta, "content", nothing)
-      content !== nothing && write(s.buf, content)
+function make_openai_parser()
+  arg_bufs = Dict{Int, Tuple{String, String, IOBuffer}}() # index -> (id, name, args_buffer)
+
+  function parse_event(s::TokenStream, data::AbstractString)
+    evt = try parse_json(data) catch; return end
+    choices = get(evt, "choices", nothing)
+    if choices !== nothing && !isempty(choices)
+      choice = choices[1]
+      delta = get(choice, "delta", nothing)
+      if delta !== nothing
+        # Text content
+        content = get(delta, "content", nothing)
+        content !== nothing && write(s.buf, content)
+        # Tool calls
+        tcs = get(delta, "tool_calls", nothing)
+        if tcs !== nothing
+          for tc in tcs
+            idx = get(tc, "index", 0)
+            if !haskey(arg_bufs, idx)
+              id = get(tc, "id", "")
+              name = get(get(tc, "function", Dict()), "name", "")
+              arg_bufs[idx] = (id, name, IOBuffer())
+            end
+            args_frag = get(get(tc, "function", Dict()), "arguments", "")
+            !isempty(args_frag) && write(arg_bufs[idx][3], args_frag)
+          end
+        end
+      end
+      # Finish reason
+      fr = get(choice, "finish_reason", nothing)
+      if fr !== nothing
+        s.finish_reason = fr
+        if !isempty(arg_bufs)
+          for idx in sort(collect(keys(arg_bufs)))
+            id, name, buf = arg_bufs[idx]
+            args_str = String(take!(buf))
+            args = isempty(args_str) ? Dict() : try parse_json(args_str) catch; Dict() end
+            push!(s.tool_calls, ToolCall(id, name, args))
+          end
+        end
+      end
+    end
+    usage = get(evt, "usage", nothing)
+    if usage !== nothing
+      s.tokens = (token(get(usage, "prompt_tokens", 0)), token(get(usage, "completion_tokens", 0)))
     end
   end
-  usage = get(evt, "usage", nothing)
-  if usage !== nothing
-    s.tokens = (token(get(usage, "prompt_tokens", 0)), token(get(usage, "completion_tokens", 0)))
-  end
+  parse_event
 end
 
 function (llm::OpenAI)(system::String, user::String; temperature::Float64=0.7)
@@ -94,5 +128,5 @@ function (llm::OpenAI)(system::String, user::String; temperature::Float64=0.7)
     "stream" => true,
     "stream_options" => Dict("include_usage" => true))
   req = post(llm.session, llm.uri, meta=Header("authorization" => "Bearer $(llm.api_key)"))
-  TokenStream(send(req, JSON(), payload), sse(openai_parse_event))
+  TokenStream(send(req, JSON(), payload), sse(make_openai_parser()))
 end
