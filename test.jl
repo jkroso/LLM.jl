@@ -287,6 +287,15 @@ end
   close(llm)
 end
 
+@testset "anthropic return_type with single-string call" begin
+  llm = LLM("claude-haiku-4-5")
+  result = from_json(llm("Make up a person"; return_type=TestPerson), TestPerson)
+  @test result isa TestPerson
+  @test !isempty(result.name)
+  @test result.age isa Int
+  close(llm)
+end
+
 @testset "anthropic unsupported features" begin
   llm = LLM("claude-haiku-4-5")
   messages = Message[SystemMessage("test"), UserMessage("test")]
