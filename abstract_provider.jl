@@ -31,6 +31,11 @@ struct Audio
   format::String
 end
 
+struct Document
+  data::Vector{UInt8}
+  mime::String
+end
+
 const Image = Union{ImageURL, ImageData}
 
 # Tool types
@@ -57,9 +62,11 @@ struct UserMessage
   text::String
   images::Vector{Image}
   audio::Vector{Audio}
+  documents::Vector{Document}
 end
-UserMessage(text::String) = UserMessage(text, Image[], Audio[])
-UserMessage(text::String, images::Vector{<:Image}) = UserMessage(text, convert(Vector{Image}, images), Audio[])
+UserMessage(text::String) = UserMessage(text, Image[], Audio[], Document[])
+UserMessage(text::String, images::Vector{<:Image}) = UserMessage(text, convert(Vector{Image}, images), Audio[], Document[])
+UserMessage(text::String, images::Vector{<:Image}, audio::Vector{Audio}) = UserMessage(text, convert(Vector{Image}, images), audio, Document[])
 
 struct AIMessage
   text::String
@@ -78,3 +85,17 @@ const Message = Union{SystemMessage, UserMessage, AIMessage, ToolResultMessage}
 
 @Enum ReasoningEffort low medium high
 @Enum ResponseFormat text json
+@Enum FinishReason stop length tool_calls content_filter
+
+# JSON Schema derivation
+
+json_schema(::Type{String}) = Dict("type" => "string")
+json_schema(::Type{Bool}) = Dict("type" => "boolean")
+json_schema(::Type{<:Integer}) = Dict("type" => "integer")
+json_schema(::Type{<:AbstractFloat}) = Dict("type" => "number")
+json_schema(::Type{Vector{T}}) where T = Dict("type" => "array", "items" => json_schema(T))
+
+function json_schema(::Type{T}) where T
+  props = Dict(string(name) => json_schema(fieldtype(T, name)) for name in fieldnames(T))
+  Dict("type" => "object", "properties" => props, "required" => [string.(fieldnames(T))...])
+end
