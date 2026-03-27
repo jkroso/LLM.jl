@@ -21,14 +21,7 @@ sse(parse_event::Function) = (s::TokenStream, line::AbstractString) -> begin
   parse_event(s, data)
 end
 
-function Base.eof(s::TokenStream)
-  if s.done && bytesavailable(s.buf) == 0
-    # Drain remaining HTTP response so the session socket is clean for reuse
-    try while !eof(s.response) readavailable(s.response) end catch end
-    return true
-  end
-  false
-end
+Base.eof(s::TokenStream) = s.done && bytesavailable(s.buf) == 0
 Base.isopen(s::TokenStream) = !s.done
 Base.bytesavailable(s::TokenStream) = bytesavailable(s.buf)
 
