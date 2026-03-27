@@ -1,6 +1,7 @@
 using Test
 @use "./main" LLM
 @use "./providers" OpenAI Anthropic Google Ollama
+@use "./abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Tool ToolCall ReasoningEffort ResponseFormat Message
 @use "./pricing" get_pricing Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 
