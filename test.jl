@@ -5,6 +5,7 @@ using Test
 @use "./pricing" get_pricing Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "./providers/openai" to_openai
+@use "./providers/anthropic" to_anthropic
 @use "./stream" from_json
 @use "github.com/jkroso/JSON.jl/write" JSON
 
@@ -150,4 +151,66 @@ end
   @test haskey(result, "greeting")
   @test stream.finish_reason == FinishReason.stop
   close(llm)
+end
+
+@testset "to_anthropic serialization" begin
+  # UserMessage — text only
+  @test to_anthropic(UserMessage("hello")) == Dict("role" => "user", "content" => "hello")
+
+  # UserMessage — with image URL
+  msg = UserMessage("what's this?", [ImageURL("https://example.com/img.png")])
+  result = to_anthropic(msg)
+  @test result["role"] == "user"
+  @test result["content"] isa Vector
+  @test result["content"][1] == Dict("type" => "text", "text" => "what's this?")
+  @test result["content"][2] == Dict("type" => "image", "source" => Dict("type" => "url", "url" => "https://example.com/img.png"))
+
+  # UserMessage — with image data
+  img_data = ImageData(UInt8[0xff, 0xd8], "image/jpeg", "high")
+  msg = UserMessage("describe", [img_data])
+  result = to_anthropic(msg)
+  @test result["content"][2]["type"] == "image"
+  @test result["content"][2]["source"]["type"] == "base64"
+  @test result["content"][2]["source"]["media_type"] == "image/jpeg"
+
+  # UserMessage — with document
+  doc = Document(UInt8[0x25, 0x50], "application/pdf")
+  msg = UserMessage("read this", Image[], Audio[], [doc])
+  result = to_anthropic(msg)
+  @test result["content"][2]["type"] == "document"
+  @test result["content"][2]["source"]["type"] == "base64"
+  @test result["content"][2]["source"]["media_type"] == "application/pdf"
+
+  # UserMessage — with audio (should error)
+  aud = Audio(UInt8[0x00], "mp3")
+  msg = UserMessage("transcribe", Image[], [aud], Document[])
+  @test_throws ErrorException to_anthropic(msg)
+
+  # AIMessage — text only
+  @test to_anthropic(AIMessage("hello")) == Dict("role" => "assistant", "content" => "hello")
+
+  # AIMessage — with tool calls
+  tc = ToolCall("toolu_123", "get_weather", Dict("city" => "Boston"))
+  msg = AIMessage("Let me check.", [tc])
+  result = to_anthropic(msg)
+  @test result["role"] == "assistant"
+  @test result["content"] isa Vector
+  @test result["content"][1] == Dict("type" => "text", "text" => "Let me check.")
+  @test result["content"][2]["type"] == "tool_use"
+  @test result["content"][2]["id"] == "toolu_123"
+  @test result["content"][2]["name"] == "get_weather"
+  @test result["content"][2]["input"] == Dict("city" => "Boston")
+
+  # ToolResultMessage
+  result = to_anthropic(ToolResultMessage("toolu_123", "72°F"))
+  @test result["role"] == "user"
+  @test result["content"][1]["type"] == "tool_result"
+  @test result["content"][1]["tool_use_id"] == "toolu_123"
+  @test result["content"][1]["content"] == "72°F"
+
+  # Tool
+  params = Dict("type" => "object", "properties" => Dict("city" => Dict("type" => "string")), "required" => ["city"])
+  tool = Tool("get_weather", "Get the weather", params)
+  result = to_anthropic(tool)
+  @test result == Dict("name" => "get_weather", "description" => "Get the weather", "input_schema" => params)
 end
