@@ -9,6 +9,15 @@ using Test
 @use "./stream" from_json
 @use "github.com/jkroso/JSON.jl/write" JSON
 
+struct TestPerson
+  name::String
+  age::Int
+end
+
+struct TestGreeting
+  greeting::String
+end
+
 @testset "LLM" begin
   config = Dict{String,Any}()
   @test LLM("claude-3-haiku", config) isa Anthropic
@@ -213,4 +222,73 @@ end
   tool = Tool("get_weather", "Get the weather", params)
   result = to_anthropic(tool)
   @test result == Dict("name" => "get_weather", "description" => "Get the weather", "input_schema" => params)
+end
+
+@testset "json_schema" begin
+  @test json_schema(String) == Dict("type" => "string")
+  @test json_schema(Bool) == Dict("type" => "boolean")
+  @test json_schema(Int) == Dict("type" => "integer")
+  @test json_schema(Float64) == Dict("type" => "number")
+  @test json_schema(Vector{String}) == Dict("type" => "array", "items" => Dict("type" => "string"))
+
+  schema = json_schema(TestPerson)
+  @test schema["type"] == "object"
+  @test schema["properties"]["name"] == Dict("type" => "string")
+  @test schema["properties"]["age"] == Dict("type" => "integer")
+  @test Set(schema["required"]) == Set(["name", "age"])
+end
+
+@testset "anthropic multi-turn conversation" begin
+  llm = LLM("claude-sonnet-4-5-20250929")
+  messages = Message[
+    SystemMessage("You are a helpful assistant"),
+    UserMessage("My name is Alice"),
+    AIMessage("Nice to meet you, Alice!"),
+    UserMessage("What is my name?")
+  ]
+  stream = llm(messages; temperature=0.0)
+  result = read(stream, String)
+  @test occursin("Alice", result)
+  @test stream.finish_reason == FinishReason.stop
+  close(llm)
+end
+
+@testset "anthropic tool calling" begin
+  llm = LLM("claude-sonnet-4-5-20250929")
+  tools = [Tool("get_temperature", "Get the current temperature in a city", Dict(
+    "type" => "object",
+    "properties" => Dict("city" => Dict("type" => "string", "description" => "City name")),
+    "required" => ["city"]))]
+  messages = Message[
+    SystemMessage("Use the get_temperature tool to answer weather questions. Always use the tool."),
+    UserMessage("What's the temperature in Boston?")
+  ]
+  stream = llm(messages; temperature=0.0, tools=tools)
+  read(stream, String) # drain the stream
+  @test stream.finish_reason == FinishReason.tool_calls
+  @test length(stream.tool_calls) >= 1
+  @test stream.tool_calls[1].name == "get_temperature"
+  @test haskey(stream.tool_calls[1].arguments, "city")
+  close(llm)
+end
+
+@testset "anthropic structured output" begin
+  llm = LLM("claude-sonnet-4-5-20250929")
+  messages = Message[
+    SystemMessage("Return a greeting"),
+    UserMessage("Say hello")
+  ]
+  stream = llm(messages; temperature=0.0, return_type=TestGreeting)
+  result = from_json(stream, TestGreeting)
+  @test result isa TestGreeting
+  @test !isempty(result.greeting)
+  @test stream.finish_reason == FinishReason.stop
+  close(llm)
+end
+
+@testset "anthropic unsupported features" begin
+  llm = LLM("claude-sonnet-4-5-20250929")
+  messages = Message[SystemMessage("test"), UserMessage("test")]
+  @test_throws ErrorException llm(messages; response_format=ResponseFormat.json)
+  close(llm)
 end
