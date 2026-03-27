@@ -119,14 +119,26 @@ function make_openai_parser()
   parse_event
 end
 
-function (llm::OpenAI)(system::String, user::String; temperature::Float64=0.7)
-  payload = Dict(
+function (llm::OpenAI)(messages::Vector{<:Message};
+                        temperature::Float64=0.7,
+                        tools::Vector{Tool}=Tool[],
+                        response_format::Union{ResponseFormat,Nothing}=nothing,
+                        reasoning_effort::Union{ReasoningEffort,Nothing}=nothing)
+  payload = Dict{String,Any}(
     "model" => llm.model,
-    "messages" => [Dict("role" => "system", "content" => system),
-                   Dict("role" => "user", "content" => user)],
+    "messages" => [to_openai(m) for m in messages],
     "temperature" => temperature,
     "stream" => true,
     "stream_options" => Dict("include_usage" => true))
+  !isempty(tools) && (payload["tools"] = [to_openai(t) for t in tools])
+  if response_format !== nothing
+    fmt = response_format == ResponseFormat.json ? "json_object" : "text"
+    payload["response_format"] = Dict("type" => fmt)
+  end
+  reasoning_effort !== nothing && (payload["reasoning_effort"] = string(reasoning_effort))
   req = post(llm.session, llm.uri, meta=Header("authorization" => "Bearer $(llm.api_key)"))
   TokenStream(send(req, JSON(), payload), sse(make_openai_parser()))
 end
+
+(llm::OpenAI)(system::String, user::String; kwargs...) =
+  llm(Message[SystemMessage(system), UserMessage(user)]; kwargs...)
