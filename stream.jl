@@ -1,5 +1,8 @@
 @use "github.com/jkroso/HTTP.jl/client" Response
+@use "github.com/jkroso/JSON.jl" parse_json
+@use "github.com/jkroso/JSON.jl/write" JSON
 @use "./pricing" token
+@use "./abstract_provider" ToolCall
 
 mutable struct TokenStream <: IO
   response::Response
@@ -8,10 +11,12 @@ mutable struct TokenStream <: IO
   tokens::Tuple{token,token}
   done::Bool
   leftover::String
+  finish_reason::Union{String,Nothing}
+  tool_calls::Vector{ToolCall}
 end
 
 TokenStream(response::Response, parse_line::Function) =
-  TokenStream(response, parse_line, PipeBuffer(), (token(0), token(0)), false, "")
+  TokenStream(response, parse_line, PipeBuffer(), (token(0), token(0)), false, "", nothing, ToolCall[])
 
 "Wrap a parse_event function to handle SSE protocol (data: prefix, [DONE] sentinel)"
 sse(parse_event::Function) = (s::TokenStream, line::AbstractString) -> begin
@@ -57,6 +62,9 @@ end
 
 "Read the full response as a String"
 Base.read(s::TokenStream, ::Type{String}) = String(read(s))
+
+"Read the full response and parse as JSON"
+Base.read(s::TokenStream, ::Type{JSON}) = parse_json(read(s, String))
 
 "Read available data from response, parse lines, write text to buffer"
 function pull_tokens!(s::TokenStream)
