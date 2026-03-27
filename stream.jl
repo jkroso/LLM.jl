@@ -21,7 +21,14 @@ sse(parse_event::Function) = (s::TokenStream, line::AbstractString) -> begin
   parse_event(s, data)
 end
 
-Base.eof(s::TokenStream) = s.done && bytesavailable(s.buf) == 0
+function Base.eof(s::TokenStream)
+  if s.done && bytesavailable(s.buf) == 0
+    # Drain remaining HTTP response so the session socket is clean for reuse
+    try while !eof(s.response) readavailable(s.response) end catch end
+    return true
+  end
+  false
+end
 Base.isopen(s::TokenStream) = !s.done
 Base.bytesavailable(s::TokenStream) = bytesavailable(s.buf)
 
@@ -48,7 +55,12 @@ function Base.read(s::TokenStream)
   chunks
 end
 
-Base.close(s::TokenStream) = (s.done = true; nothing)
+function Base.close(s::TokenStream)
+  s.done = true
+  # Drain remaining HTTP response so the session socket is clean for reuse
+  try while !eof(s.response) readavailable(s.response) end catch end
+  nothing
+end
 
 "Read the full response as a String"
 Base.read(s::TokenStream, ::Type{String}) = String(read(s))
