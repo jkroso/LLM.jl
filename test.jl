@@ -5,6 +5,7 @@ using Test
 @use "./pricing" get_pricing Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "./providers/openai" to_openai
+@use "github.com/jkroso/JSON.jl/write" JSON
 
 @testset "LLM" begin
   config = Dict{String,Any}()
@@ -100,4 +101,52 @@ end
   tool = Tool("get_weather", "Get the weather", params)
   result = to_openai(tool)
   @test result == Dict("type" => "function", "function" => Dict("name" => "get_weather", "description" => "Get the weather", "parameters" => params))
+end
+
+@testset "multi-turn conversation" begin
+  llm = LLM("grok-4-1-fast-reasoning")
+  messages = Message[
+    SystemMessage("You are a helpful assistant"),
+    UserMessage("My name is Alice"),
+    AIMessage("Nice to meet you, Alice!"),
+    UserMessage("What is my name?")
+  ]
+  stream = llm(messages; temperature=0.0)
+  result = read(stream, String)
+  @test occursin("Alice", result)
+  @test stream.finish_reason in ("stop", "end_turn")
+  close(llm)
+end
+
+@testset "tool calling" begin
+  llm = LLM("grok-4-1-fast-reasoning")
+  tools = [Tool("get_temperature", "Get the current temperature in a city", Dict(
+    "type" => "object",
+    "properties" => Dict("city" => Dict("type" => "string", "description" => "City name")),
+    "required" => ["city"]))]
+  messages = Message[
+    SystemMessage("Use the get_temperature tool to answer weather questions"),
+    UserMessage("What's the temperature in Boston?")
+  ]
+  stream = llm(messages; temperature=0.0, tools=tools)
+  read(stream, String) # drain the stream
+  @test stream.finish_reason == "tool_calls"
+  @test length(stream.tool_calls) >= 1
+  @test stream.tool_calls[1].name == "get_temperature"
+  @test haskey(stream.tool_calls[1].arguments, "city")
+  close(llm)
+end
+
+@testset "structured output" begin
+  llm = LLM("grok-4-1-fast-reasoning")
+  messages = Message[
+    SystemMessage("Return a JSON object with a 'greeting' field"),
+    UserMessage("Say hello")
+  ]
+  stream = llm(messages; temperature=0.0, response_format=ResponseFormat.json)
+  result = read(stream, JSON)
+  @test result isa Dict
+  @test haskey(result, "greeting")
+  @test stream.finish_reason in ("stop", "end_turn")
+  close(llm)
 end
