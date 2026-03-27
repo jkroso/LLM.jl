@@ -145,3 +145,5 @@ end
 
 (llm::OpenAI)(system::String, user::String; kwargs...) =
   llm(Message[SystemMessage(system), UserMessage(user)]; kwargs...)
+(llm::OpenAI)(user::String; kwargs...) =
+  llm(Message[UserMessage(user)]; kwargs...)

@@ -166,3 +166,5 @@ end
 
 (llm::Anthropic)(system::String, user::String; kwargs...) =
   llm(Message[SystemMessage(system), UserMessage(user)]; kwargs...)
+(llm::Anthropic)(user::String; kwargs...) =
+  llm(Message[UserMessage(user)]; kwargs...)
