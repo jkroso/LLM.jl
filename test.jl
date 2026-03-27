@@ -1,5 +1,5 @@
 @use "./providers" OpenAI Anthropic Google Ollama
-@use "./abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
+@use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
 @use "./pricing" get_pricing Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON

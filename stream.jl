@@ -2,7 +2,7 @@
 @use "github.com/jkroso/JSON.jl" parse_json
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./pricing" token
-@use "./abstract_provider" ToolCall FinishReason
+@use "./providers/abstract_provider" ToolCall FinishReason
 
 mutable struct TokenStream <: IO
   response::Response

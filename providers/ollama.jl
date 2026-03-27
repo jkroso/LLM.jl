@@ -3,7 +3,7 @@
 @use "github.com/jkroso/URI.jl" URI
 @use "github.com/jkroso/JSON.jl" parse_json
 @use "github.com/jkroso/JSON.jl/write" JSON
-@use "../abstract_provider" LLM post finalize
+@use "./abstract_provider" LLM post finalize
 @use "../stream" TokenStream
 @use "../pricing" Price get_pricing token
 
