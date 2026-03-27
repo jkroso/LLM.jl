@@ -2,7 +2,7 @@
 @use "github.com/jkroso/JSON.jl" parse_json
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./pricing" token
-@use "./abstract_provider" ToolCall
+@use "./abstract_provider" ToolCall FinishReason
 
 mutable struct TokenStream <: IO
   response::Response
@@ -11,7 +11,7 @@ mutable struct TokenStream <: IO
   tokens::Tuple{token,token}
   done::Bool
   leftover::String
-  finish_reason::Union{String,Nothing}
+  finish_reason::Union{FinishReason,Nothing}
   tool_calls::Vector{ToolCall}
 end
 
@@ -65,6 +65,12 @@ Base.read(s::TokenStream, ::Type{String}) = String(read(s))
 
 "Read the full response and parse as JSON"
 Base.read(s::TokenStream, ::Type{JSON}) = parse_json(read(s, String))
+
+"Read the full response, parse as JSON, and construct type T"
+function from_json(s::TokenStream, ::Type{T}) where T
+  dict = read(s, JSON)
+  T((dict[string(name)] for name in fieldnames(T))...)
+end
 
 "Read available data from response, parse lines, write text to buffer"
 function pull_tokens!(s::TokenStream)
