@@ -1,13 +1,13 @@
-using Test
-@use "./main" LLM
 @use "./providers" OpenAI Anthropic Google Ollama
 @use "./abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
 @use "./pricing" get_pricing Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
-@use "./providers/openai" to_openai
-@use "./providers/anthropic" to_anthropic
-@use "./stream" from_json
 @use "github.com/jkroso/JSON.jl/write" JSON
+@use "./providers/anthropic" to_anthropic
+@use "./providers/openai" to_openai
+@use "./stream" from_json
+@use "." LLM
+@use Test...
 
 struct TestPerson
   name::String
@@ -54,7 +54,7 @@ end
 
 @testset "get_pricing" begin
   @test get_pricing("nonexistent-model") == (0.0USD/Mtoken(1), 0.0USD/Mtoken(1))
-  (input_price, output_price) = get_pricing("claude-sonnet-4-5-20250929")
+  (input_price, output_price) = get_pricing("claude-haiku-4-5")
   @test token(1_000_000) * input_price > 0.0USD
   @test token(1_000_000) * output_price > 0.0USD
 end
@@ -236,10 +236,11 @@ end
   @test schema["properties"]["name"] == Dict("type" => "string")
   @test schema["properties"]["age"] == Dict("type" => "integer")
   @test Set(schema["required"]) == Set(["name", "age"])
+  @test schema["additionalProperties"] == false
 end
 
 @testset "anthropic multi-turn conversation" begin
-  llm = LLM("claude-sonnet-4-5-20250929")
+  llm = LLM("claude-haiku-4-5")
   messages = Message[
     SystemMessage("You are a helpful assistant"),
     UserMessage("My name is Alice"),
@@ -254,7 +255,7 @@ end
 end
 
 @testset "anthropic tool calling" begin
-  llm = LLM("claude-sonnet-4-5-20250929")
+  llm = LLM("claude-haiku-4-5")
   tools = [Tool("get_temperature", "Get the current temperature in a city", Dict(
     "type" => "object",
     "properties" => Dict("city" => Dict("type" => "string", "description" => "City name")),
@@ -273,7 +274,7 @@ end
 end
 
 @testset "anthropic structured output" begin
-  llm = LLM("claude-sonnet-4-5-20250929")
+  llm = LLM("claude-haiku-4-5")
   messages = Message[
     SystemMessage("Return a greeting"),
     UserMessage("Say hello")
@@ -287,7 +288,7 @@ end
 end
 
 @testset "anthropic unsupported features" begin
-  llm = LLM("claude-sonnet-4-5-20250929")
+  llm = LLM("claude-haiku-4-5")
   messages = Message[SystemMessage("test"), UserMessage("test")]
   @test_throws ErrorException llm(messages; response_format=ResponseFormat.json)
   close(llm)

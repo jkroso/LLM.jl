@@ -97,5 +97,5 @@ json_schema(::Type{Vector{T}}) where T = Dict("type" => "array", "items" => json
 
 function json_schema(::Type{T}) where T
   props = Dict(string(name) => json_schema(fieldtype(T, name)) for name in fieldnames(T))
-  Dict("type" => "object", "properties" => props, "required" => [string.(fieldnames(T))...])
+  Dict("type" => "object", "properties" => props, "required" => [string.(fieldnames(T))...], "additionalProperties" => false)
 end
