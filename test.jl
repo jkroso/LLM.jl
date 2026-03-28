@@ -55,18 +55,17 @@ end
 @testset "search_providers" begin
   results = search_providers()
   @test length(results) > 0
-  @test all(r -> haskey(r, "id") && haskey(r, "name") && haskey(r, "model_count"), results)
-  # sorted by model count descending
-  counts = [r["model_count"] for r in results]
-  @test issorted(counts, rev=true)
+  @test all(r -> haskey(r, "id") && haskey(r, "name"), results)
 
   # search by name
-  results = search_providers("anthropic")
+  results = search_providers(AbstractString["anthropic"])
   @test length(results) > 0
   @test all(r -> occursin("anthropic", lowercase(r["id"])) || occursin("anthropic", lowercase(r["name"])), results)
 
   # no results for nonsense
-  @test isempty(search_providers("zzz_nonexistent_provider_xyz"))
+  @test isempty(search_providers(AbstractString["zzz_nonexistent_provider_xyz"]))
+
+  @test length(search_providers(AbstractString["anthropic", "xai"])) >= 2
 end
 
 @testset "search_models" begin

@@ -7,51 +7,33 @@ abstract type Tokens <: Dimension end
 
 const Price = USD/Mtoken
 const zero_price = (0.0USD/Mtoken, 0.0USD/Mtoken)
-const API_JSON_PATH = joinpath(@__DIR__, "models.dev", "api.json")
-const MODELS_DEV_DIR = joinpath(@__DIR__, "models.dev")
+const API_JSON_PATH = joinpath(@__DIR__, "api.json")
+const LOGOS_DIR = joinpath(@__DIR__, "logos")
 const ONE_WEEK = 7 * 24 * 60 * 60 # seconds
 
-function build_api_json()
-  web_dir = joinpath(MODELS_DEV_DIR, "packages", "web")
-  run(Cmd(`git pull`; dir=MODELS_DEV_DIR))
-  run(Cmd(`bun install`; dir=MODELS_DEV_DIR))
-  run(Cmd(`bun run build`; dir=web_dir))
-  cp(joinpath(web_dir, "dist", "_api.json"), API_JSON_PATH; force=true)
-end
-
-is_stale(path) = (time() - mtime(path)) > ONE_WEEK
-
 function __init__()
-  if !isfile(API_JSON_PATH)
-    build_api_json()
-  elseif is_stale(API_JSON_PATH)
-    @async build_api_json()
+  if !isfile(API_JSON_PATH) || (time() - mtime(API_JSON_PATH)) > ONE_WEEK
+    download("https://models.dev/api.json", API_JSON_PATH)
   end
 end
-
-load_api_data() = open(parse_json, API_JSON_PATH)
 
 "Search for providers by name. Returns a Vector of Dicts with provider info"
-function search_providers(query::AbstractString=""; max_results::Int=20)
-  data = load_api_data()
+function search_providers(query::AbstractVector{<:AbstractString})
+  query = map(lowercase, query)
   results = Dict{String,Any}[]
-  q = lowercase(query)
-  for (_, provider_data) in data
-    id = get(provider_data, "id", "")
-    name = get(provider_data, "name", "")
-    if !isempty(q)
-      occursin(q, lowercase(id)) || occursin(q, lowercase(name)) || continue
+  for (_, provider_data) in open(parse_json, API_JSON_PATH)
+    id = lowercase(get(provider_data, "id", ""))
+    name = lowercase(get(provider_data, "name", ""))
+    if any(q->occursin(q, name) || occursin(q, id), query)
+      push!(results, provider_data)
     end
-    model_count = length(get(provider_data, "models", Dict()))
-    push!(results, Dict{String,Any}(
-      "id" => id,
-      "name" => name,
-      "doc" => get(provider_data, "doc", nothing),
-      "env" => get(provider_data, "env", String[]),
-      "model_count" => model_count))
   end
-  sort!(results, by=r -> r["model_count"], rev=true)
-  length(results) > max_results ? results[1:max_results] : results
+  results
+end
+
+function search_providers(query::AbstractString="")
+  isempty(query) && return collect(values(open(parse_json, API_JSON_PATH)))
+  search_providers(String[query])
 end
 
 "Search for models by name/id. Returns a Vector of Dicts with model info"
@@ -61,15 +43,9 @@ function search_models(query::AbstractString="";
                        vision::Union{Bool,Nothing}=nothing,
                        max_context::Union{Int,Nothing}=nothing,
                        max_results::Int=20)
-  data = load_api_data()
   results = Dict{String,Any}[]
   q = lowercase(query)
-  providers = provider isa AbstractString ? [provider] : provider
-  for (provider_name, provider_data) in data
-    if providers !== nothing
-      lp = lowercase(provider_name)
-      any(p -> occursin(lowercase(p), lp), providers) || continue
-    end
+  for provider_data in (provider === nothing ? search_providers() : search_providers(provider))
     models = get(provider_data, "models", nothing)
     models === nothing && continue
     for (_, model_data) in models
@@ -92,7 +68,7 @@ function search_models(query::AbstractString="";
         ctx < max_context && continue
       end
       push!(results, Dict{String,Any}(
-        "provider" => provider_name,
+        "provider" => get(provider_data, "id", ""),
         "id" => id,
         "name" => name,
         "release_date" => get(model_data, "release_date", ""),
@@ -107,9 +83,15 @@ function search_models(query::AbstractString="";
   length(results) > max_results ? results[1:max_results] : results
 end
 
+function get_logo(provider::AbstractString)
+  mkpath(LOGOS_DIR)
+  path = joinpath(LOGOS_DIR, "$provider.svg")
+  isfile(path) || download("https://models.dev/logos/$provider.svg", path)
+  path
+end
+
 function get_pricing(model::String)
-  data = load_api_data()
-  for (_, provider_data) in data
+  for (_, provider_data) in open(parse_json, API_JSON_PATH)
     models = get(provider_data, "models", nothing)
     models === nothing && continue
     for (_, model_data) in models
