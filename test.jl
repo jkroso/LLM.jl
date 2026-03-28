@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./pricing" get_pricing Mtoken token
+@use "./models" get_pricing search_models Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -50,6 +50,29 @@ end
   @test stream.tokens[1] > token(0) # input tokens tracked
   @test stream.tokens[2] > token(0) # output tokens tracked
   close(llm)
+end
+
+@testset "search_models" begin
+  results = search_models("claude")
+  @test length(results) > 0
+  @test all(r -> occursin("claude", lowercase(r["id"])) || occursin("claude", lowercase(r["name"])), results)
+  @test all(r -> haskey(r, "provider") && haskey(r, "id") && haskey(r, "cost"), results)
+
+  # filter by provider
+  results = search_models(provider="anthropic")
+  @test length(results) > 0
+  @test all(r -> occursin("anthropic", lowercase(r["provider"])), results)
+
+  # filter by reasoning
+  results = search_models(""; reasoning=true, max_results=5)
+  @test all(r -> r["reasoning"] == true, results)
+
+  # filter by vision
+  results = search_models(""; vision=true, max_results=5)
+  @test all(r -> "image" in r["modalities"]["input"], results)
+
+  # no results for nonsense query
+  @test isempty(search_models("zzz_nonexistent_model_xyz"))
 end
 
 @testset "get_pricing" begin

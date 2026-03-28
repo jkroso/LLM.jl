@@ -3,7 +3,7 @@
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "github.com/jkroso/URI.jl" URI
 @use "./abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document
-@use "../pricing" Price get_pricing token
+@use "../models" Price get_pricing token
 @use "../stream" TokenStream sse
 @use Base64...
 

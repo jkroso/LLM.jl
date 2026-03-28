@@ -5,7 +5,7 @@
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./abstract_provider" LLM post finalize
 @use "../stream" TokenStream sse
-@use "../pricing" Price get_pricing token
+@use "../models" Price get_pricing token
 
 mutable struct Google <: LLM
   model::String

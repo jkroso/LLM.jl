@@ -15,7 +15,7 @@ This project uses `@use` (from github.com/jkroso/Kip.jl) instead of Julia's stan
 - **`main.jl`** -- Entry point. Exports `LLM(model_name, config)` constructor which dispatches model name strings to provider constructors. Model routing is prefix-based (e.g., `"claude*"` -> Anthropic, `"gpt*"` -> OpenAI). Unknown models default to Ollama.
 - **`messages.jl`** -- Simple message types: `SystemMessage`, `UserMessage`, `AIMessage`, unified as `AbstractMessage = Union{...}`.
 - **`stream.jl`** -- `TokenStream <: IO`, a mutable struct that wraps an HTTP response and parses streaming lines into a readable stream. The `sse()` wrapper handles SSE protocol (data: prefix, [DONE] sentinel) for cloud providers. Ollama uses NDJSON and passes its parser directly. Implements `Base.read`, `readavailable`, `eof`, etc.
-- **`pricing.jl`** -- Defines `Token` unit via Units.jl and `Price = USD/Mtoken`. `get_pricing(model)` reads `models.dev/api.json` on demand and returns `(input_price, output_price)` tuple, defaulting to zero.
+- **`models.jl`** -- Defines `Token` unit via Units.jl and `Price = USD/Mtoken`. `get_pricing(model)` reads `models.dev/api.json` on demand and returns `(input_price, output_price)` tuple, defaulting to zero. `search_models(query; provider, reasoning, vision, max_context, max_results)` searches the model database.
 - **`providers.jl`** -- All providers in one file. Each is a `mutable struct <: LLM` with `model`, `session` (HTTP Session for keep-alive), `uri` (pre-built request URI), and `pricing`. Each struct is callable, returning a `TokenStream`. Providers have finalizers to close sessions on GC, plus `Base.close(::LLM)` for explicit cleanup.
 
 ## Provider Call Pattern
