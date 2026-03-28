@@ -83,6 +83,16 @@ function search_models(query::AbstractString="";
   length(results) > max_results ? results[1:max_results] : results
 end
 
+function providers(ids::Vector{String})
+  data = open(parse_json, API_JSON_PATH)
+  map(ids) do id
+    p = get(data, id, nothing)
+    p === nothing && error("Unknown provider: $id")
+    p["logo"] = get_logo(id)
+    p
+  end
+end
+
 function get_logo(provider::AbstractString)
   mkpath(LOGOS_DIR)
   path = joinpath(LOGOS_DIR, "$provider.svg")
