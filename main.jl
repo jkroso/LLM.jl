@@ -1,7 +1,7 @@
 @use "./providers/abstract_provider" LLM Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
 @use "./providers" OpenAI Anthropic Google Ollama
 @use "./stream" from_json
-@use "./models" get_pricing search_models
+@use "./models" get_pricing search_models search_providers
 
 "Create an LLM instance from a model name string and config dict"
 function LLM(model::String, config::Dict=Dict())

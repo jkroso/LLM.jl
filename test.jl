@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" get_pricing search_models Mtoken token
+@use "./models" get_pricing search_models search_providers Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -52,16 +52,42 @@ end
   close(llm)
 end
 
+@testset "search_providers" begin
+  results = search_providers()
+  @test length(results) > 0
+  @test all(r -> haskey(r, "id") && haskey(r, "name") && haskey(r, "model_count"), results)
+  # sorted by model count descending
+  counts = [r["model_count"] for r in results]
+  @test issorted(counts, rev=true)
+
+  # search by name
+  results = search_providers("anthropic")
+  @test length(results) > 0
+  @test all(r -> occursin("anthropic", lowercase(r["id"])) || occursin("anthropic", lowercase(r["name"])), results)
+
+  # no results for nonsense
+  @test isempty(search_providers("zzz_nonexistent_provider_xyz"))
+end
+
 @testset "search_models" begin
   results = search_models("claude")
   @test length(results) > 0
   @test all(r -> occursin("claude", lowercase(r["id"])) || occursin("claude", lowercase(r["name"])), results)
   @test all(r -> haskey(r, "provider") && haskey(r, "id") && haskey(r, "cost"), results)
 
-  # filter by provider
+  # sorted newest first
+  dates = [r["release_date"] for r in results if !isempty(r["release_date"])]
+  @test issorted(dates, rev=true)
+
+  # filter by single provider
   results = search_models(provider="anthropic")
   @test length(results) > 0
   @test all(r -> occursin("anthropic", lowercase(r["provider"])), results)
+
+  # filter by multiple providers
+  results = search_models(provider=["anthropic", "openai"])
+  @test length(results) > 0
+  @test all(r -> occursin("anthropic", lowercase(r["provider"])) || occursin("openai", lowercase(r["provider"])), results)
 
   # filter by reasoning
   results = search_models(""; reasoning=true, max_results=5)

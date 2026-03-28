@@ -31,9 +31,32 @@ end
 
 load_api_data() = open(parse_json, API_JSON_PATH)
 
+"Search for providers by name. Returns a Vector of Dicts with provider info"
+function search_providers(query::AbstractString=""; max_results::Int=20)
+  data = load_api_data()
+  results = Dict{String,Any}[]
+  q = lowercase(query)
+  for (_, provider_data) in data
+    id = get(provider_data, "id", "")
+    name = get(provider_data, "name", "")
+    if !isempty(q)
+      occursin(q, lowercase(id)) || occursin(q, lowercase(name)) || continue
+    end
+    model_count = length(get(provider_data, "models", Dict()))
+    push!(results, Dict{String,Any}(
+      "id" => id,
+      "name" => name,
+      "doc" => get(provider_data, "doc", nothing),
+      "env" => get(provider_data, "env", String[]),
+      "model_count" => model_count))
+  end
+  sort!(results, by=r -> r["model_count"], rev=true)
+  length(results) > max_results ? results[1:max_results] : results
+end
+
 "Search for models by name/id. Returns a Vector of Dicts with model info"
 function search_models(query::AbstractString="";
-                       provider::Union{AbstractString,Nothing}=nothing,
+                       provider::Union{AbstractString,AbstractVector{<:AbstractString},Nothing}=nothing,
                        reasoning::Union{Bool,Nothing}=nothing,
                        vision::Union{Bool,Nothing}=nothing,
                        max_context::Union{Int,Nothing}=nothing,
@@ -41,8 +64,12 @@ function search_models(query::AbstractString="";
   data = load_api_data()
   results = Dict{String,Any}[]
   q = lowercase(query)
+  providers = provider isa AbstractString ? [provider] : provider
   for (provider_name, provider_data) in data
-    provider !== nothing && !occursin(lowercase(provider), lowercase(provider_name)) && continue
+    if providers !== nothing
+      lp = lowercase(provider_name)
+      any(p -> occursin(lowercase(p), lp), providers) || continue
+    end
     models = get(provider_data, "models", nothing)
     models === nothing && continue
     for (_, model_data) in models
@@ -68,15 +95,16 @@ function search_models(query::AbstractString="";
         "provider" => provider_name,
         "id" => id,
         "name" => name,
+        "release_date" => get(model_data, "release_date", ""),
         "reasoning" => get(model_data, "reasoning", false),
         "tool_call" => get(model_data, "tool_call", false),
         "modalities" => get(model_data, "modalities", nothing),
         "context" => let l = get(model_data, "limit", nothing); l !== nothing ? get(l, "context", nothing) : nothing end,
         "cost" => get(model_data, "cost", nothing)))
-      length(results) >= max_results && return results
     end
   end
-  results
+  sort!(results, by=r -> r["release_date"], rev=true)
+  length(results) > max_results ? results[1:max_results] : results
 end
 
 function get_pricing(model::String)
