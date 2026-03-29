@@ -15,8 +15,13 @@ mutable struct TokenStream <: IO
   tool_calls::Vector{ToolCall}
 end
 
-TokenStream(response::Response, parse_line::Function) =
+function TokenStream(response::Response, parse_line::Function)
+  if response.status >= 300
+    body = try String(read(response)) catch; "" end
+    error("HTTP $(response.status): $body")
+  end
   TokenStream(response, parse_line, PipeBuffer(), (token(0), token(0)), false, "", nothing, ToolCall[])
+end
 
 "Wrap a parse_event function to handle SSE protocol (data: prefix, [DONE] sentinel)"
 sse(parse_event::Function) = (s::TokenStream, line::AbstractString) -> begin
