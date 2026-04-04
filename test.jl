@@ -78,15 +78,15 @@ end
   dates = [r["release_date"] for r in results if !isempty(r["release_date"])]
   @test issorted(dates, rev=true)
 
-  # filter by single provider
-  results = search_models(provider="anthropic")
+  # filter by single provider returns only that provider
+  results = search_models(provider="openai")
   @test length(results) > 0
-  @test all(r -> occursin("anthropic", lowercase(r["provider"])), results)
+  @test all(r -> r["provider"] == "openai", results)
 
-  # filter by multiple providers
+  # filter by multiple providers returns only those providers
   results = search_models(provider=["anthropic", "openai"])
   @test length(results) > 0
-  @test all(r -> occursin("anthropic", lowercase(r["provider"])) || occursin("openai", lowercase(r["provider"])), results)
+  @test all(r -> r["provider"] in ("anthropic", "openai"), results)
 
   # filter by reasoning
   results = search_models(""; reasoning=true, max_results=5)
@@ -98,6 +98,16 @@ end
 
   # no results for nonsense query
   @test isempty(search_models("zzz_nonexistent_model_xyz"))
+
+  # local ollama models show up in search results
+  ollama_results = search_models(provider="ollama", max_results=100)
+  local_results = filter(r -> r["provider"] == "ollama", ollama_results)
+  @test length(local_results) > 0
+  @test all(r -> haskey(r, "id") && haskey(r, "name") && haskey(r, "modalities"), local_results)
+  # searching by name should also find local ollama models
+  first_model = local_results[1]["id"]
+  name_results = search_models(first_model, max_results=100)
+  @test any(r -> r["provider"] == "ollama" && r["id"] == first_model, name_results)
 end
 
 @testset "get_pricing" begin

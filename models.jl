@@ -89,14 +89,16 @@ end
 
 "Search for models by name/id. Returns a Vector of Dicts with model info"
 function search_models(query::AbstractString="";
-                       provider::Union{AbstractString,AbstractVector{<:AbstractString},Nothing}=nothing,
+                       provider::Union{AbstractString,AbstractVector{<:AbstractString},Nothing}=String[],
                        reasoning::Union{Bool,Nothing}=nothing,
                        vision::Union{Bool,Nothing}=nothing,
                        max_context::Union{Int,Nothing}=nothing,
                        max_results::Int=20)
   results = Dict{String,Any}[]
   q = lowercase(query)
-  for provider_data in (provider === nothing ? search_providers() : search_providers(provider))
+  provider_ids = provider isa AbstractString ? [provider] : provider
+  for (provider, provider_data) in open(parse_json, API_JSON_PATH)
+    isempty(provider_ids) || provider in provider_ids || continue
     models = get(provider_data, "models", nothing)
     models === nothing && continue
     for (_, model_data) in models
