@@ -1,6 +1,6 @@
-@use "github.com/jkroso/Units.jl" @defunit Dimension
-@use "github.com/jkroso/Units.jl/Money" USD
-@use "github.com/jkroso/JSON.jl" parse_json
+@use "github.com/jkroso/Units.jl" @defunit Dimension ["Money" USD]
+@use "github.com/jkroso/JSON.jl" parse_json write_json JSON
+@use "github.com/jkroso/HTTP.jl/client" GET POST send
 
 abstract type Tokens <: Dimension end
 @defunit Token <: Tokens [k M]token
@@ -14,6 +14,57 @@ const ONE_WEEK = 7 * 24 * 60 * 60 # seconds
 function __init__()
   if !isfile(API_JSON_PATH) || (time() - mtime(API_JSON_PATH)) > ONE_WEEK
     download("https://models.dev/api.json", API_JSON_PATH)
+  end
+  add_ollama_models()
+end
+
+function add_ollama_models(base_url::String="http://localhost:11434")
+  models = try
+    read(GET("$base_url/api/tags"), String) |> parse_json
+  catch
+    return # Ollama not running
+  end
+  model_list = get(models, "models", nothing)
+  model_list === nothing && return
+  data = open(parse_json, API_JSON_PATH)
+  ollama = get!(data, "ollama") do
+    Dict{String,Any}("id" => "ollama", "name" => "Ollama", "models" => Dict{String,Any}())
+  end
+  ollama_models = get!(ollama, "models") do; Dict{String,Any}() end
+  for m in model_list
+    id = m["name"]
+    details = get(m, "details", Dict())
+    info = get_ollama_model_info(base_url, id)
+    has_vision = info !== nothing && any(k->occursin(".vision.", k), keys(info))
+    context = if info !== nothing
+      ctx_key = findfirst(k->endswith(k, ".context_length"), keys(info))
+      ctx_key !== nothing ? info[ctx_key] : nothing
+    end
+    input_modalities = has_vision ? ["text", "image"] : ["text"]
+    ollama_models[id] = Dict{String,Any}(
+      "id" => id,
+      "name" => id,
+      "family" => get(details, "family", ""),
+      "parameter_size" => get(details, "parameter_size", ""),
+      "quantization" => get(details, "quantization_level", ""),
+      "open_weights" => true,
+      "modalities" => Dict("input" => input_modalities, "output" => ["text"]),
+      "limit" => Dict{String,Any}("context" => context))
+  end
+  open(API_JSON_PATH, "w") do io
+    write_json(io, data)
+  end
+end
+
+function get_ollama_model_info(base_url::String, model::String)
+  try
+    req = POST("$base_url/api/show")
+    res = send(req, JSON(), Dict("model" => model))
+    data = parse(JSON(), res)
+    close(req.sock)
+    get(data, "model_info", nothing)
+  catch
+    nothing
   end
 end
 
