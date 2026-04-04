@@ -28,7 +28,7 @@ function add_ollama_models(base_url::String="http://localhost:11434")
   model_list === nothing && return
   data = open(parse_json, API_JSON_PATH)
   ollama = get!(data, "ollama") do
-    Dict{String,Any}("id" => "ollama", "name" => "Ollama", "models" => Dict{String,Any}())
+    Dict{String,Any}("id" => "ollama", "name" => "Ollama", "logo_id" => "ollama-cloud", "models" => Dict{String,Any}())
   end
   ollama_models = get!(ollama, "models") do; Dict{String,Any}() end
   for m in model_list
@@ -139,7 +139,7 @@ function providers(ids::Vector{String})
   map(ids) do id
     p = get(data, id, nothing)
     p === nothing && error("Unknown provider: $id")
-    p["logo"] = get_logo(id)
+    p["logo"] = get_logo(get(p, "logo_id", id))
     p
   end
 end
