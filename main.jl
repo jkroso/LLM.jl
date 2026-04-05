@@ -1,7 +1,7 @@
 @use "./providers/abstract_provider" LLM Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
 @use "./providers" OpenAI Anthropic Google Ollama
 @use "./stream" from_json
-@use "./models" get_pricing search_models search_providers providers
+@use "./models" get_pricing search search_providers
 
 # Provider prefix → (config_key, constructor_url)
 const PROVIDER_MAP = Dict(
@@ -16,7 +16,7 @@ const PROVIDER_MAP = Dict(
 const ENV_VARS = Dict{String,Vector{String}}()
 
 function __init__()
-  for p in providers(collect(keys(PROVIDER_MAP)))
+  for p in search_providers(collect(keys(PROVIDER_MAP)))
     ENV_VARS[p["id"]] = get(p, "env", String[])
   end
 end

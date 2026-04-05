@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" get_pricing search_models search_providers Mtoken token
+@use "./models" get_pricing search search_providers Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -71,45 +71,50 @@ end
   @test length(search_providers(AbstractString["anthropic", "xai"])) >= 2
 end
 
-@testset "search_models" begin
-  results = search_models("claude")
+@testset "search" begin
+  results = search("", "claude")
   @test length(results) > 0
   @test all(r -> occursin("claude", lowercase(r["id"])) || occursin("claude", lowercase(r["name"])), results)
-  @test all(r -> haskey(r, "provider") && haskey(r, "id") && haskey(r, "cost"), results)
+  @test all(r -> haskey(r, "provider") && haskey(r, "id") && haskey(r, "pricing"), results)
 
   # sorted newest first
   dates = [r["release_date"] for r in results if !isempty(r["release_date"])]
   @test issorted(dates, rev=true)
 
-  # filter by single provider returns only that provider
-  results = search_models(provider="openai")
+  # filter by provider
+  results = search("openai")
   @test length(results) > 0
   @test all(r -> r["provider"] == "openai", results)
 
-  # filter by multiple providers returns only those providers
-  results = search_models(provider=["anthropic", "openai"])
+  # fuzzy provider search
+  results = search("anthro")
   @test length(results) > 0
-  @test all(r -> r["provider"] in ("anthropic", "openai"), results)
+  @test all(r -> occursin("anthro", lowercase(r["provider"])), results)
+
+  # combine provider and model queries
+  results = search("openai", "gpt")
+  @test length(results) > 0
+  @test all(r -> r["provider"] == "openai" && occursin("gpt", lowercase(r["id"])), results)
 
   # filter by reasoning
-  results = search_models(""; reasoning=true, max_results=5)
+  results = search("", "", reasoning=true, max_results=5)
   @test all(r -> r["reasoning"] == true, results)
 
   # filter by vision
-  results = search_models(""; vision=true, max_results=5)
+  results = search("", "", vision=true, max_results=5)
   @test all(r -> "image" in r["modalities"]["input"], results)
 
   # no results for nonsense query
-  @test isempty(search_models("zzz_nonexistent_model_xyz"))
+  @test isempty(search("", "zzz_nonexistent_model_xyz"))
 
   # local ollama models show up in search results
-  ollama_results = search_models(provider="ollama", max_results=100)
+  ollama_results = search("ollama", "", max_results=100)
   local_results = filter(r -> r["provider"] == "ollama", ollama_results)
   @test length(local_results) > 0
   @test all(r -> haskey(r, "id") && haskey(r, "name") && haskey(r, "modalities"), local_results)
   # searching by name should also find local ollama models
   first_model = local_results[1]["id"]
-  name_results = search_models(first_model, max_results=100)
+  name_results = search("", first_model, max_results=100)
   @test any(r -> r["provider"] == "ollama" && r["id"] == first_model, name_results)
 end
 

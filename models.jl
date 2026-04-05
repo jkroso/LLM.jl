@@ -87,25 +87,29 @@ function search_providers(query::AbstractString="")
   search_providers(String[query])
 end
 
-"Search for models by name/id. Returns a Vector of Dicts with model info"
-function search_models(query::AbstractString="";
-                       provider::Union{AbstractString,AbstractVector{<:AbstractString},Nothing}=String[],
-                       reasoning::Union{Bool,Nothing}=nothing,
-                       vision::Union{Bool,Nothing}=nothing,
-                       max_context::Union{Int,Nothing}=nothing,
-                       max_results::Int=20)
+"Search for models. Filter by provider and/or model name. Returns a Vector of Dicts with model info"
+function search(provider::AbstractString="",
+                model::AbstractString="";
+                reasoning::Union{Bool,Nothing}=nothing,
+                vision::Union{Bool,Nothing}=nothing,
+                max_context::Union{Int,Nothing}=nothing,
+                max_results::Int=20)
   results = Dict{String,Any}[]
-  q = lowercase(query)
-  provider_ids = provider isa AbstractString ? [provider] : provider
-  for (provider, provider_data) in open(parse_json, API_JSON_PATH)
-    isempty(provider_ids) || provider in provider_ids || continue
+  pq = lowercase(provider)
+  mq = lowercase(model)
+  for (_, provider_data) in open(parse_json, API_JSON_PATH)
+    provider_id = lowercase(get(provider_data, "id", ""))
+    provider_name = lowercase(get(provider_data, "name", ""))
+    if !isempty(pq)
+      occursin(pq, provider_id) || occursin(pq, provider_name) || continue
+    end
     models = get(provider_data, "models", nothing)
     models === nothing && continue
     for (_, model_data) in models
       id = get(model_data, "id", "")
       name = get(model_data, "name", "")
-      if !isempty(q)
-        occursin(q, lowercase(id)) || occursin(q, lowercase(name)) || continue
+      if !isempty(mq)
+        occursin(mq, lowercase(id)) || occursin(mq, lowercase(name)) || continue
       end
       if reasoning !== nothing
         get(model_data, "reasoning", false) != reasoning && continue
@@ -122,6 +126,7 @@ function search_models(query::AbstractString="";
       end
       push!(results, Dict{String,Any}(
         "provider" => get(provider_data, "id", ""),
+        "logo" => get_logo(get(provider_data, "logo_id", get(provider_data, "id", ""))),
         "id" => id,
         "name" => name,
         "release_date" => get(model_data, "release_date", ""),
@@ -129,28 +134,31 @@ function search_models(query::AbstractString="";
         "tool_call" => get(model_data, "tool_call", false),
         "modalities" => get(model_data, "modalities", nothing),
         "context" => let l = get(model_data, "limit", nothing); l !== nothing ? get(l, "context", nothing) : nothing end,
-        "cost" => get(model_data, "cost", nothing)))
+        "pricing" => parse_pricing(get(model_data, "cost", nothing))))
     end
   end
   sort!(results, by=r -> r["release_date"], rev=true)
   length(results) > max_results ? results[1:max_results] : results
 end
 
-function providers(ids::Vector{String})
-  data = open(parse_json, API_JSON_PATH)
-  map(ids) do id
-    p = get(data, id, nothing)
-    p === nothing && error("Unknown provider: $id")
-    p["logo"] = get_logo(get(p, "logo_id", id))
-    p
+
+const LOGO_CACHE = Dict{String,String}()
+
+function get_logo(provider::AbstractString)
+  get!(LOGO_CACHE, provider) do
+    mkpath(LOGOS_DIR)
+    path = joinpath(LOGOS_DIR, "$provider.svg")
+    isfile(path) || download("https://models.dev/logos/$provider.svg", path)
+    path
   end
 end
 
-function get_logo(provider::AbstractString)
-  mkpath(LOGOS_DIR)
-  path = joinpath(LOGOS_DIR, "$provider.svg")
-  isfile(path) || download("https://models.dev/logos/$provider.svg", path)
-  path
+function parse_pricing(cost)
+  cost === nothing && return zero_price
+  input_price = get(cost, "input", nothing)
+  output_price = get(cost, "output", nothing)
+  (input_price === nothing || output_price === nothing) && return zero_price
+  (Float64(input_price) * USD/Mtoken, Float64(output_price) * USD/Mtoken)
 end
 
 function get_pricing(model::String)
@@ -159,12 +167,7 @@ function get_pricing(model::String)
     models === nothing && continue
     for (_, model_data) in models
       get(model_data, "id", nothing) == model || continue
-      cost = get(model_data, "cost", nothing)
-      cost === nothing && return zero_price
-      input_price = get(cost, "input", nothing)
-      output_price = get(cost, "output", nothing)
-      (input_price === nothing || output_price === nothing) && return zero_price
-      return (Float64(input_price) * USD/Mtoken, Float64(output_price) * USD/Mtoken)
+      return parse_pricing(get(model_data, "cost", nothing))
     end
   end
   zero_price
