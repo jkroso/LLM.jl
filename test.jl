@@ -101,6 +101,21 @@ end
   @test length(results) > 0
   @test all(r -> r["provider"] == "openai" && occursin("gpt", lowercase(r["id"])), results)
 
+  # allowed_providers — exact match, single string
+  results = search(allowed_providers="openai")
+  @test length(results) > 0
+  @test all(r -> r["provider"] == "openai", results)
+
+  # allowed_providers — exact match, multiple providers
+  results = search(allowed_providers=["anthropic", "openai"])
+  @test length(results) > 0
+  @test all(r -> r["provider"] in ("anthropic", "openai"), results)
+
+  # allowed_providers — combined with model query
+  results = search("gpt", allowed_providers="openai")
+  @test length(results) > 0
+  @test all(r -> r["provider"] == "openai" && occursin("gpt", lowercase(r["id"])), results)
+
   # filter by reasoning
   results = search("", "", reasoning=true, max_results=5)
   @test all(r -> r["reasoning"] == true, results)

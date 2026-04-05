@@ -155,12 +155,19 @@ end
 "Search for models. Filter by provider and/or model name"
 function search(provider::AbstractString,
                 model::AbstractString;
+                allowed_providers::Union{AbstractString,AbstractVector{<:AbstractString},Nothing}=nothing,
                 reasoning::Union{Bool,Nothing}=nothing,
                 vision::Union{Bool,Nothing}=nothing,
                 max_context::Union{Int,Nothing}=nothing,
                 max_results::Int=20)
   conditions = String[]
   params = Any[]
+  if allowed_providers !== nothing
+    ids = allowed_providers isa AbstractString ? [allowed_providers] : allowed_providers
+    placeholders = join(["?" for _ in ids], ", ")
+    push!(conditions, "p.id IN ($placeholders)")
+    append!(params, ids)
+  end
   if !isempty(provider)
     push!(conditions, "(LOWER(p.id) LIKE ? OR LOWER(p.name) LIKE ?)")
     pq = "%$(lowercase(provider))%"
@@ -192,15 +199,22 @@ function search(provider::AbstractString,
 end
 
 "Search for models where query matches either provider or model name"
-function search(query::AbstractString;
+function search(query::AbstractString="";
+                allowed_providers::Union{AbstractString,AbstractVector{<:AbstractString},Nothing}=nothing,
                 reasoning::Union{Bool,Nothing}=nothing,
                 vision::Union{Bool,Nothing}=nothing,
                 max_context::Union{Int,Nothing}=nothing,
                 max_results::Int=20)
-  isempty(query) && return search("", ""; reasoning, vision, max_context, max_results)
+  isempty(query) && return search("", ""; allowed_providers, reasoning, vision, max_context, max_results)
   conditions = String["(LOWER(p.id) LIKE ? OR LOWER(p.name) LIKE ? OR LOWER(m.id) LIKE ? OR LOWER(m.name) LIKE ?)"]
   q = "%$(lowercase(query))%"
   params = Any[q, q, q, q]
+  if allowed_providers !== nothing
+    ids = allowed_providers isa AbstractString ? [allowed_providers] : allowed_providers
+    placeholders = join(["?" for _ in ids], ", ")
+    push!(conditions, "p.id IN ($placeholders)")
+    append!(params, ids)
+  end
   if reasoning !== nothing
     push!(conditions, "m.reasoning = ?")
     push!(params, reasoning ? 1 : 0)
