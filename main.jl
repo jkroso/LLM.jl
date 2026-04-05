@@ -1,8 +1,7 @@
 @use "./providers/abstract_provider" LLM Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
 @use "./providers" OpenAI Anthropic Google Ollama
 @use "./stream" from_json
-@use "./models" get_pricing search search_providers API_JSON_PATH
-@use "github.com/jkroso/JSON.jl" parse_json
+@use "./models" get_pricing search search_providers
 
 # Provider prefix → (config_key, constructor_url)
 const PROVIDER_MAP = Dict(
@@ -17,9 +16,8 @@ const PROVIDER_MAP = Dict(
 const ENV_VARS = Dict{String,Vector{String}}()
 
 function __init__()
-  for (id, provider_data) in open(parse_json, API_JSON_PATH)
-    haskey(PROVIDER_MAP, id) || continue
-    ENV_VARS[id] = get(provider_data, "env", String[])
+  for p in search_providers(collect(keys(PROVIDER_MAP)))
+    ENV_VARS[get(p, "id", "")] = get(p, "env", String[])
   end
 end
 
