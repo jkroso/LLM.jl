@@ -37,7 +37,8 @@ function init_db!()
       vision INTEGER DEFAULT 0,
       context INTEGER,
       input_price REAL DEFAULT 0,
-      output_price REAL DEFAULT 0
+      output_price REAL DEFAULT 0,
+      PRIMARY KEY (id, provider_id)
     )""")
   DBInterface.execute(db[], "CREATE INDEX idx_models_release ON models(release_date DESC)")
   DBInterface.execute(db[], "CREATE INDEX idx_models_provider ON models(provider_id)")
