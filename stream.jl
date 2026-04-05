@@ -13,6 +13,7 @@ mutable struct TokenStream <: IO
   leftover::String
   finish_reason::Union{FinishReason,Nothing}
   tool_calls::Vector{ToolCall}
+  thinking::IOBuffer
 end
 
 function TokenStream(response::Response, parse_line::Function)
@@ -20,7 +21,7 @@ function TokenStream(response::Response, parse_line::Function)
     body = try String(read(response)) catch; "" end
     error("HTTP $(response.status): $body")
   end
-  TokenStream(response, parse_line, PipeBuffer(), (token(0), token(0)), false, "", nothing, ToolCall[])
+  TokenStream(response, parse_line, PipeBuffer(), (token(0), token(0)), false, "", nothing, ToolCall[], PipeBuffer())
 end
 
 "Wrap a parse_event function to handle SSE protocol (data: prefix, [DONE] sentinel)"

@@ -5,9 +5,12 @@
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
 @use "./providers/openai" to_openai
+@use "./providers/ollama" to_ollama
 @use "./stream" from_json
 @use "." LLM
 @use Test...
+
+@use Base64...
 
 struct TestPerson
   name::String
@@ -172,6 +175,59 @@ end
   @test result == Dict("type" => "function", "function" => Dict("name" => "get_weather", "description" => "Get the weather", "parameters" => params))
 end
 
+@testset "to_ollama serialization" begin
+  # SystemMessage
+  @test to_ollama(SystemMessage("be helpful")) == Dict("role" => "system", "content" => "be helpful")
+
+  # UserMessage — text only
+  @test to_ollama(UserMessage("hello")) == Dict{String,Any}("role" => "user", "content" => "hello")
+
+  # UserMessage — with image data (base64 in images array)
+  img_data = ImageData(UInt8[0xff, 0xd8], "image/jpeg")
+  msg = UserMessage("describe", [img_data])
+  result = to_ollama(msg)
+  @test result["role"] == "user"
+  @test result["content"] == "describe"
+  @test length(result["images"]) == 1
+  @test result["images"][1] == base64encode(UInt8[0xff, 0xd8])
+
+  # UserMessage — with image URL (should error)
+  msg = UserMessage("what's this?", [ImageURL("https://example.com/img.png")])
+  @test_throws ErrorException to_ollama(msg)
+
+  # UserMessage — with audio (should error)
+  aud = Audio(UInt8[0x00], "mp3")
+  msg = UserMessage("transcribe", Image[], [aud])
+  @test_throws ErrorException to_ollama(msg)
+
+  # UserMessage — with documents (should error)
+  doc = Document(UInt8[0x25], "application/pdf")
+  msg = UserMessage("read", Image[], Audio[], [doc])
+  @test_throws ErrorException to_ollama(msg)
+
+  # AIMessage — text only
+  @test to_ollama(AIMessage("hello")) == Dict{String,Any}("role" => "assistant", "content" => "hello")
+
+  # AIMessage — with tool calls
+  tc = ToolCall("call_123", "get_weather", Dict("city" => "Boston"))
+  msg = AIMessage("", [tc])
+  result = to_ollama(msg)
+  @test result["role"] == "assistant"
+  @test result["content"] == ""
+  @test length(result["tool_calls"]) == 1
+  @test result["tool_calls"][1]["function"]["name"] == "get_weather"
+  @test result["tool_calls"][1]["function"]["arguments"] == Dict("city" => "Boston")
+
+  # ToolResultMessage
+  @test to_ollama(ToolResultMessage("call_123", "72°F")) == Dict("role" => "tool", "content" => "72°F")
+
+  # Tool
+  params = Dict("type" => "object", "properties" => Dict("city" => Dict("type" => "string")), "required" => ["city"])
+  tool = Tool("get_weather", "Get the weather", params)
+  result = to_ollama(tool)
+  @test result == Dict("type" => "function", "function" => Dict("name" => "get_weather", "description" => "Get the weather", "parameters" => params))
+end
+
 @testset "multi-turn conversation" begin
   llm = LLM("grok-4-1-fast-reasoning")
   messages = Message[
@@ -295,6 +351,82 @@ end
   @test schema["properties"]["age"] == Dict("type" => "integer")
   @test Set(schema["required"]) == Set(["name", "age"])
   @test schema["additionalProperties"] == false
+end
+
+@testset "ollama basic" begin
+  llm = LLM("ollama/Qwen3:14b")
+  stream = llm("You are a helpful assistant", "Reply with just the word 'hello'"; temperature=0.0)
+  result = read(stream, String)
+  @test occursin("hello", lowercase(result))
+  @test stream.tokens[1] > token(0)
+  @test stream.tokens[2] > token(0)
+  close(llm)
+end
+
+@testset "ollama multi-turn conversation" begin
+  llm = LLM("ollama/Qwen3:14b")
+  messages = Message[
+    SystemMessage("You are a helpful assistant. Be concise."),
+    UserMessage("My name is Alice"),
+    AIMessage("Nice to meet you, Alice!"),
+    UserMessage("What is my name?")
+  ]
+  stream = llm(messages; temperature=0.0)
+  result = read(stream, String)
+  @test occursin("Alice", result)
+  @test stream.finish_reason == FinishReason.stop
+  close(llm)
+end
+
+@testset "ollama tool calling" begin
+  llm = LLM("ollama/Qwen3:14b")
+  tools = [Tool("get_temperature", "Get the current temperature in a city", Dict(
+    "type" => "object",
+    "properties" => Dict("city" => Dict("type" => "string", "description" => "City name")),
+    "required" => ["city"]))]
+  messages = Message[
+    SystemMessage("Use the get_temperature tool to answer weather questions. Always use the tool."),
+    UserMessage("What's the temperature in Boston?")
+  ]
+  stream = llm(messages; temperature=0.0, tools=tools)
+  read(stream, String)
+  @test stream.finish_reason == FinishReason.tool_calls
+  @test length(stream.tool_calls) >= 1
+  @test stream.tool_calls[1].name == "get_temperature"
+  @test haskey(stream.tool_calls[1].arguments, "city")
+  close(llm)
+end
+
+@testset "ollama structured output" begin
+  llm = LLM("ollama/Qwen3:14b")
+  messages = Message[
+    SystemMessage("Return a JSON object with a 'greeting' field"),
+    UserMessage("Say hello")
+  ]
+  stream = llm(messages; temperature=0.0, response_format=ResponseFormat.json)
+  result = read(stream, JSON)
+  @test result isa Dict
+  @test haskey(result, "greeting")
+  close(llm)
+end
+
+@testset "ollama return_type" begin
+  llm = LLM("ollama/Qwen3:14b")
+  result = from_json(llm("Make up a person"; return_type=TestPerson), TestPerson)
+  @test result isa TestPerson
+  @test !isempty(result.name)
+  @test result.age isa Int
+  close(llm)
+end
+
+@testset "ollama reasoning" begin
+  llm = LLM("ollama/Qwen3:14b")
+  stream = llm("What is 23 * 47?"; reasoning_effort=ReasoningEffort.high)
+  result = read(stream, String)
+  @test occursin("1081", result)
+  @test !isempty(String(take!(stream.thinking)))
+  @test stream.tokens[2] > token(0)
+  close(llm)
 end
 
 @testset "anthropic multi-turn conversation" begin
