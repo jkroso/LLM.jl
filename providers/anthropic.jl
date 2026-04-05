@@ -10,6 +10,7 @@
 using Base64
 
 mutable struct Anthropic <: LLM
+  provider::String
   model::String
   api_key::String
   session::Session
@@ -19,7 +20,7 @@ end
 
 function Anthropic(model::String, api_key::String)
   uri = parseURI(get(ENV, "ANTHROPIC_BASE_URL", "https://api.anthropic.com"))
-  finalizer(finalize, Anthropic(model, api_key, Session(uri=uri), URI("/v1/messages", defaults=uri), get_pricing(model)))
+  finalizer(finalize, Anthropic("anthropic", model, api_key, Session(uri=uri), URI("/v1/messages", defaults=uri), get_pricing("anthropic", model)))
 end
 
 # Serialization

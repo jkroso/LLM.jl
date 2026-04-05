@@ -8,6 +8,7 @@
 @use "../models" Price get_pricing token
 
 mutable struct Google <: LLM
+  provider::String
   model::String
   api_key::String
   session::Session
@@ -18,7 +19,7 @@ end
 function Google(model::String, api_key::String)
   base = parseURI("https://generativelanguage.googleapis.com")
   uri = URI("/v1beta/models/$model:streamGenerateContent?alt=sse&key=$api_key", defaults=base)
-  finalizer(finalize, Google(model, api_key, Session(uri=base), uri, get_pricing(model)))
+  finalizer(finalize, Google("google", model, api_key, Session(uri=base), uri, get_pricing("google", model)))
 end
 
 function google_parse_event(s::TokenStream, data::AbstractString)

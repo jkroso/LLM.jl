@@ -10,6 +10,7 @@
 @use Base64...
 
 mutable struct Ollama <: LLM
+  provider::String
   model::String
   session::Session
   uri::URI
@@ -18,7 +19,7 @@ end
 
 function Ollama(model::String, base_url::String)
   uri = parseURI(base_url)
-  finalizer(finalize, Ollama(model, Session(uri=uri), URI("/api/chat", defaults=uri), get_pricing(model)))
+  finalizer(finalize, Ollama("ollama", model, Session(uri=uri), URI("/api/chat", defaults=uri), get_pricing("ollama", model)))
 end
 Ollama(model::String) = Ollama(model, "http://localhost:11434")
 

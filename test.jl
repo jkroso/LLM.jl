@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" get_pricing search search_providers Mtoken token
+@use "./models" get_pricing search Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -45,98 +45,78 @@ end
   @test LLM("gpt-4", config).session.uri.host == "api.openai.com"
 end
 
-@testset "search_providers" begin
-  results = search_providers()
-  @test length(results) > 0
-  @test all(r -> haskey(r, "id") && haskey(r, "name"), results)
-
-  # search by name
-  results = search_providers(AbstractString["anthropic"])
-  @test length(results) > 0
-  @test all(r -> occursin("anthropic", lowercase(r["id"])) || occursin("anthropic", lowercase(r["name"])), results)
-
-  # no results for nonsense
-  @test isempty(search_providers(AbstractString["zzz_nonexistent_provider_xyz"]))
-
-  @test length(search_providers(AbstractString["anthropic", "xai"])) >= 2
-end
 
 @testset "search" begin
-  results = search("", "claude")
+  results = search("", "claude", allowed_providers="anthropic")
   @test length(results) > 0
-  @test all(r -> occursin("claude", lowercase(r["id"])) || occursin("claude", lowercase(r["name"])), results)
-  @test all(r -> haskey(r, "provider") && haskey(r, "id") && haskey(r, "pricing"), results)
+  @test all(r -> occursin("claude", lowercase(r.id)) || occursin("claude", lowercase(r.name)), results)
+  @test all(r -> hasproperty(r, :provider) && hasproperty(r, :id) && hasproperty(r, :pricing), results)
 
   # sorted newest first
-  dates = [r["release_date"] for r in results if !isempty(r["release_date"])]
+  dates = [r.release_date for r in results if !isempty(r.release_date)]
   @test issorted(dates, rev=true)
 
   # filter by provider only
-  results = search("openai", "")
+  results = search("openai", "", allowed_providers="openai")
   @test length(results) > 0
-  @test all(r -> r["provider"] == "openai", results)
-
-  # fuzzy provider search
-  results = search("anthro", "")
-  @test length(results) > 0
-  @test all(r -> occursin("anthro", lowercase(r["provider"])), results)
+  @test all(r -> r.provider == "openai", results)
 
   # single-arg OR search matches provider or model
-  results = search("openai")
+  results = search("openai", allowed_providers="openai")
   @test length(results) > 0
-  @test all(r -> occursin("openai", lowercase(r["provider"])) || occursin("openai", lowercase(r["id"])), results)
+  @test all(r -> occursin("openai", lowercase(r.provider)) || occursin("openai", lowercase(r.id)), results)
 
   # combine provider and model queries
-  results = search("openai", "gpt")
+  results = search("openai", "gpt", allowed_providers="openai")
   @test length(results) > 0
-  @test all(r -> r["provider"] == "openai" && occursin("gpt", lowercase(r["id"])), results)
+  @test all(r -> r.provider == "openai" && occursin("gpt", lowercase(r.id)), results)
 
   # provider + model narrows to exact intersection
   results = search("gemma", allowed_providers="ollama")
   @test length(results) == 1
-  @test results[1]["provider"] == "ollama"
-  @test occursin("gemma", lowercase(results[1]["id"]))
+  @test results[1].provider == "ollama"
+  @test occursin("gemma", lowercase(results[1].id))
 
   # allowed_providers — exact match, single string
   results = search(allowed_providers="openai")
   @test length(results) > 0
-  @test all(r -> r["provider"] == "openai", results)
+  @test all(r -> r.provider == "openai", results)
 
   # allowed_providers — exact match, multiple providers
   results = search(allowed_providers=["anthropic", "openai"])
   @test length(results) > 0
-  @test all(r -> r["provider"] in ("anthropic", "openai"), results)
+  @test all(r -> r.provider in ("anthropic", "openai"), results)
 
   # allowed_providers — combined with model query
   results = search("gpt", allowed_providers="openai")
   @test length(results) > 0
-  @test all(r -> r["provider"] == "openai" && occursin("gpt", lowercase(r["id"])), results)
+  @test all(r -> r.provider == "openai" && occursin("gpt", lowercase(r.id)), results)
 
   # filter by reasoning
-  results = search("", "", reasoning=true, max_results=5)
-  @test all(r -> r["reasoning"] == true, results)
+  results = search("", "", allowed_providers=["anthropic", "openai"], reasoning=true, max_results=5)
+  @test all(r -> r.reasoning == true, results)
 
   # filter by vision
-  results = search("", "", vision=true, max_results=5)
-  @test all(r -> "image" in r["modalities"]["input"], results)
+  results = search("", "", allowed_providers=["anthropic", "openai"], vision=true, max_results=5)
+  @test all(r -> "image" in r.modalities["input"], results)
 
   # no results for nonsense query
-  @test isempty(search("", "zzz_nonexistent_model_xyz"))
+  @test isempty(search("", "zzz_nonexistent_model_xyz", allowed_providers="openai"))
 
   # local ollama models show up in search results
-  ollama_results = search("ollama", "", max_results=100)
-  local_results = filter(r -> r["provider"] == "ollama", ollama_results)
-  @test length(local_results) > 0
-  @test all(r -> haskey(r, "id") && haskey(r, "name") && haskey(r, "modalities"), local_results)
+  ollama_results = search("", "", allowed_providers="ollama", max_results=100)
+  @test length(ollama_results) > 0
+  @test all(r -> r.provider == "ollama", ollama_results)
+  @test all(r -> hasproperty(r, :id) && hasproperty(r, :name) && hasproperty(r, :modalities), ollama_results)
   # searching by name should also find local ollama models
-  first_model = local_results[1]["id"]
-  name_results = search("", first_model, max_results=100)
-  @test any(r -> r["provider"] == "ollama" && r["id"] == first_model, name_results)
+  first_model = ollama_results[1].id
+  name_results = search("", first_model, allowed_providers="ollama", max_results=100)
+  @test any(r -> r.provider == "ollama" && r.id == first_model, name_results)
 end
 
 @testset "get_pricing" begin
-  @test get_pricing("nonexistent-model") == (0.0USD/Mtoken(1), 0.0USD/Mtoken(1))
-  (input_price, output_price) = get_pricing("claude-haiku-4-5")
+  @test get_pricing("openai", "nonexistent-model") == (0.0USD/Mtoken(1), 0.0USD/Mtoken(1))
+  (input_price, output_price) = get_pricing("anthropic", "claude-haiku-4-5")
   @test token(1_000_000) * input_price > 0.0USD
   @test token(1_000_000) * output_price > 0.0USD
 end

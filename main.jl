@@ -1,32 +1,23 @@
 @use "./providers/abstract_provider" LLM Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
 @use "./providers" OpenAI Anthropic Google Ollama
 @use "./stream" from_json
-@use "./models" get_pricing search search_providers
+@use "./models" get_pricing search
 
-# Provider prefix → (config_key, constructor_url)
 const PROVIDER_MAP = Dict(
-  "anthropic" => (key="anthropic_key", url=nothing),
-  "openai"    => (key="openai_key",    url=nothing),
-  "google"    => (key="google_key",    url=nothing),
-  "mistral"   => (key="mistral_key",   url="https://api.mistral.ai"),
-  "deepseek"  => (key="deepseek_key",  url="https://api.deepseek.com"),
-  "xai"       => (key="xai_key",       url="https://api.x.ai"),
+  "anthropic" => (key="anthropic_key", url=nothing,                    env=["ANTHROPIC_API_KEY"]),
+  "openai"    => (key="openai_key",    url=nothing,                    env=["OPENAI_API_KEY"]),
+  "google"    => (key="google_key",    url=nothing,                    env=["GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"]),
+  "mistral"   => (key="mistral_key",   url="https://api.mistral.ai",   env=["MISTRAL_API_KEY"]),
+  "deepseek"  => (key="deepseek_key",  url="https://api.deepseek.com", env=["DEEPSEEK_API_KEY"]),
+  "xai"       => (key="xai_key",       url="https://api.x.ai",         env=["XAI_API_KEY"]),
 )
-
-const ENV_VARS = Dict{String,Vector{String}}()
-
-function __init__()
-  for p in search_providers(collect(keys(PROVIDER_MAP)))
-    ENV_VARS[get(p, "id", "")] = get(p, "env", String[])
-  end
-end
 
 "Look up the API key for a provider from config dict or environment variables"
 function get_api_key(provider_id::String, config::Dict)
   info = PROVIDER_MAP[provider_id]
   key = get(config, info.key, nothing)
   key !== nothing && return string(key)
-  for env in get(ENV_VARS, provider_id, String[])
+  for env in info.env
     val = get(ENV, env, nothing)
     val !== nothing && return val
   end
@@ -50,9 +41,9 @@ function LLM(model::String, config::Dict=Dict())
       elseif prefix == "google"
         return Google(model, api_key)
       elseif info.url !== nothing
-        return OpenAI(model, api_key, info.url)
+        return OpenAI(model, api_key, info.url; provider=prefix)
       else
-        return OpenAI(model, api_key)
+        return OpenAI(model, api_key; provider=prefix)
       end
     end
   end
@@ -66,11 +57,11 @@ function LLM(model::String, config::Dict=Dict())
   elseif startswith(lm, "gemini")
     Google(model, get_api_key("google", config))
   elseif startswith(lm, "mistral")
-    OpenAI(model, get_api_key("mistral", config), "https://api.mistral.ai")
+    OpenAI(model, get_api_key("mistral", config), "https://api.mistral.ai"; provider="mistral")
   elseif startswith(lm, "deepseek")
-    OpenAI(model, get_api_key("deepseek", config), "https://api.deepseek.com")
+    OpenAI(model, get_api_key("deepseek", config), "https://api.deepseek.com"; provider="deepseek")
   elseif startswith(lm, "grok")
-    OpenAI(model, get_api_key("xai", config), "https://api.x.ai")
+    OpenAI(model, get_api_key("xai", config), "https://api.x.ai"; provider="xai")
   else
     Ollama(model, get(config, "ollama_url", "http://localhost:11434"))
   end

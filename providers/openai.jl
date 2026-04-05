@@ -8,6 +8,7 @@
 @use Base64...
 
 mutable struct OpenAI <: LLM
+  provider::String
   model::String
   api_key::String
   session::Session
@@ -15,11 +16,11 @@ mutable struct OpenAI <: LLM
   pricing::Tuple{Price, Price}
 end
 
-function OpenAI(model::String, api_key::String, base_url::String)
+function OpenAI(model::String, api_key::String, base_url::String; provider::String="openai")
   uri = parseURI(base_url)
-  finalizer(finalize, OpenAI(model, api_key, Session(uri=uri), URI("/v1/chat/completions", defaults=uri), get_pricing(model)))
+  finalizer(finalize, OpenAI(provider, model, api_key, Session(uri=uri), URI("/v1/chat/completions", defaults=uri), get_pricing(provider, model)))
 end
-OpenAI(model::String, api_key::String) = OpenAI(model, api_key, "https://api.openai.com")
+OpenAI(model::String, api_key::String; provider::String="openai") = OpenAI(model, api_key, "https://api.openai.com"; provider)
 
 # Serialization
 
