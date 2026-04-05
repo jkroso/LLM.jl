@@ -11,11 +11,31 @@ const API_JSON_PATH = joinpath(@__DIR__, "api.json")
 const LOGOS_DIR = joinpath(@__DIR__, "logos")
 const ONE_WEEK = 7 * 24 * 60 * 60 # seconds
 
+const MODEL_CACHE = Ref{Vector{Tuple{Dict{AbstractString,Any}, Dict{AbstractString,Any}}}}()
+
+"Load api.json into a flat list of (provider, model) pairs sorted by release_date descending"
+function load_models!()
+  data = open(parse_json, API_JSON_PATH)
+  pairs = Tuple{Dict{AbstractString,Any}, Dict{AbstractString,Any}}[]
+  for (_, provider_data) in data
+    models = get(provider_data, "models", nothing)
+    models === nothing && continue
+    haskey(provider_data, "logo_id") || (provider_data["logo_id"] = get(provider_data, "id", ""))
+    provider_data["logo"] = get_logo(provider_data["logo_id"])
+    for (_, model_data) in models
+      push!(pairs, (provider_data, model_data))
+    end
+  end
+  sort!(pairs, by=p->get(p[2], "release_date", ""), rev=true)
+  MODEL_CACHE[] = pairs
+end
+
 function __init__()
   if !isfile(API_JSON_PATH) || (time() - mtime(API_JSON_PATH)) > ONE_WEEK
     download("https://models.dev/api.json", API_JSON_PATH)
   end
   add_ollama_models()
+  load_models!()
 end
 
 function add_ollama_models(base_url::String="http://localhost:11434")
@@ -88,8 +108,8 @@ function search_providers(query::AbstractString="")
 end
 
 "Search for models. Filter by provider and/or model name. Returns a Vector of Dicts with model info"
-function search(provider::AbstractString="",
-                model::AbstractString="";
+function search(provider::AbstractString,
+                model::AbstractString;
                 reasoning::Union{Bool,Nothing}=nothing,
                 vision::Union{Bool,Nothing}=nothing,
                 max_context::Union{Int,Nothing}=nothing,
@@ -97,50 +117,81 @@ function search(provider::AbstractString="",
   results = Dict{String,Any}[]
   pq = lowercase(provider)
   mq = lowercase(model)
-  for (_, provider_data) in open(parse_json, API_JSON_PATH)
-    provider_id = lowercase(get(provider_data, "id", ""))
-    provider_name = lowercase(get(provider_data, "name", ""))
+  for (provider_data, model_data) in MODEL_CACHE[]
     if !isempty(pq)
+      provider_id = lowercase(get(provider_data, "id", ""))
+      provider_name = lowercase(get(provider_data, "name", ""))
       occursin(pq, provider_id) || occursin(pq, provider_name) || continue
     end
-    models = get(provider_data, "models", nothing)
-    models === nothing && continue
-    for (_, model_data) in models
-      id = get(model_data, "id", "")
-      name = get(model_data, "name", "")
-      if !isempty(mq)
-        occursin(mq, lowercase(id)) || occursin(mq, lowercase(name)) || continue
-      end
-      if reasoning !== nothing
-        get(model_data, "reasoning", false) != reasoning && continue
-      end
-      if vision !== nothing
-        modalities = get(model_data, "modalities", nothing)
-        has_vision = modalities !== nothing && "image" in get(modalities, "input", String[])
-        has_vision != vision && continue
-      end
-      if max_context !== nothing
-        limit = get(model_data, "limit", nothing)
-        ctx = limit !== nothing ? get(limit, "context", 0) : 0
-        ctx < max_context && continue
-      end
-      push!(results, Dict{String,Any}(
-        "provider" => get(provider_data, "id", ""),
-        "logo" => get_logo(get(provider_data, "logo_id", get(provider_data, "id", ""))),
-        "id" => id,
-        "name" => name,
-        "release_date" => get(model_data, "release_date", ""),
-        "reasoning" => get(model_data, "reasoning", false),
-        "tool_call" => get(model_data, "tool_call", false),
-        "modalities" => get(model_data, "modalities", nothing),
-        "context" => let l = get(model_data, "limit", nothing); l !== nothing ? get(l, "context", nothing) : nothing end,
-        "pricing" => parse_pricing(get(model_data, "cost", nothing))))
+    id = get(model_data, "id", "")
+    name = get(model_data, "name", "")
+    if !isempty(mq)
+      occursin(mq, lowercase(id)) || occursin(mq, lowercase(name)) || continue
     end
+    if reasoning !== nothing
+      get(model_data, "reasoning", false) != reasoning && continue
+    end
+    if vision !== nothing
+      modalities = get(model_data, "modalities", nothing)
+      has_vision = modalities !== nothing && "image" in get(modalities, "input", String[])
+      has_vision != vision && continue
+    end
+    if max_context !== nothing
+      limit = get(model_data, "limit", nothing)
+      ctx = limit !== nothing ? get(limit, "context", 0) : 0
+      ctx < max_context && continue
+    end
+    push!(results, make_result(provider_data, model_data))
+    length(results) >= max_results && break
   end
-  sort!(results, by=r -> r["release_date"], rev=true)
-  length(results) > max_results ? results[1:max_results] : results
+  results
 end
 
+make_result(p, m) = Dict{String,Any}(
+  "provider" => get(p, "id", ""),
+  "logo" => p["logo"],
+  "id" => get(m, "id", ""),
+  "name" => get(m, "name", ""),
+  "release_date" => get(m, "release_date", ""),
+  "reasoning" => get(m, "reasoning", false),
+  "tool_call" => get(m, "tool_call", false),
+  "modalities" => get(m, "modalities", nothing),
+  "context" => let l = get(m, "limit", nothing); l !== nothing ? get(l, "context", nothing) : nothing end,
+  "pricing" => parse_pricing(get(m, "cost", nothing)))
+
+"Search for models where query matches either provider or model name"
+function search(query::AbstractString;
+                reasoning::Union{Bool,Nothing}=nothing,
+                vision::Union{Bool,Nothing}=nothing,
+                max_context::Union{Int,Nothing}=nothing,
+                max_results::Int=20)
+  q = lowercase(query)
+  isempty(q) && return search("", ""; reasoning, vision, max_context, max_results)
+  results = Dict{String,Any}[]
+  for (provider_data, model_data) in MODEL_CACHE[]
+    pid = lowercase(get(provider_data, "id", ""))
+    pname = lowercase(get(provider_data, "name", ""))
+    mid = lowercase(get(model_data, "id", ""))
+    mname = lowercase(get(model_data, "name", ""))
+    occursin(q, pid) || occursin(q, pname) || occursin(q, mid) || occursin(q, mname) || continue
+    if reasoning !== nothing
+      get(model_data, "reasoning", false) != reasoning && continue
+    end
+    if vision !== nothing
+      modalities = get(model_data, "modalities", nothing)
+      has_vision = modalities !== nothing && "image" in get(modalities, "input", String[])
+      has_vision != vision && continue
+    end
+    if max_context !== nothing
+      limit = get(model_data, "limit", nothing)
+      ctx = limit !== nothing ? get(limit, "context", 0) : 0
+      ctx < max_context && continue
+    end
+    push!(results, make_result(provider_data, model_data))
+    length(results) >= max_results && break
+  end
+  results
+end
 
 const LOGO_CACHE = Dict{String,String}()
 

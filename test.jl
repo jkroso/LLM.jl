@@ -81,15 +81,20 @@ end
   dates = [r["release_date"] for r in results if !isempty(r["release_date"])]
   @test issorted(dates, rev=true)
 
-  # filter by provider
-  results = search("openai")
+  # filter by provider only
+  results = search("openai", "")
   @test length(results) > 0
   @test all(r -> r["provider"] == "openai", results)
 
   # fuzzy provider search
-  results = search("anthro")
+  results = search("anthro", "")
   @test length(results) > 0
   @test all(r -> occursin("anthro", lowercase(r["provider"])), results)
+
+  # single-arg OR search matches provider or model
+  results = search("openai")
+  @test length(results) > 0
+  @test all(r -> occursin("openai", lowercase(r["provider"])) || occursin("openai", lowercase(r["id"])), results)
 
   # combine provider and model queries
   results = search("openai", "gpt")
