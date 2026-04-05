@@ -10,13 +10,16 @@ abstract type Tokens <: Dimension end
 const Price = USD/Mtoken
 const zero_price = (0.0USD/Mtoken, 0.0USD/Mtoken)
 const API_JSON_PATH = joinpath(@__DIR__, "api.json")
+const DB_PATH = joinpath(@__DIR__, "models.db")
 const LOGOS_DIR = joinpath(@__DIR__, "logos")
-const ONE_WEEK = 7 * 24 * 60 * 60 # seconds
+const Days = 24 * 60 * 60 # in seconds
 
 const db = Ref{SQLite.DB}()
 
 function init_db!()
-  db[] = SQLite.DB() # in-memory
+  db[] = SQLite.DB(DB_PATH)
+  DBInterface.execute(db[], "DROP TABLE IF EXISTS models")
+  DBInterface.execute(db[], "DROP TABLE IF EXISTS providers")
   DBInterface.execute(db[], """
     CREATE TABLE providers (
       id TEXT PRIMARY KEY,
@@ -44,10 +47,12 @@ function populate_db!()
   data = open(parse_json, API_JSON_PATH)
   for (_, provider_data) in data
     pid = get(provider_data, "id", "")
-    pname = get(provider_data, "name", "")
-    logo_id = get(provider_data, "logo_id", pid)
-    logo = get_logo(logo_id)
-    DBInterface.execute(db[], "INSERT OR REPLACE INTO providers VALUES (?, ?, ?)", (pid, pname, logo))
+    existing = DBInterface.execute(db[], "SELECT 1 FROM providers WHERE id = ?", (pid,))
+    if isempty(collect(existing))
+      pname = get(provider_data, "name", "")
+      logo = get_logo(get(provider_data, "logo_id", pid))
+      DBInterface.execute(db[], "INSERT INTO providers VALUES (?, ?, ?)", (pid, pname, logo))
+    end
     models = get(provider_data, "models", nothing)
     models === nothing && continue
     for model_data in (models isa Dict ? values(models) : models)
@@ -63,19 +68,19 @@ function populate_db!()
       cost = get(model_data, "cost", nothing)
       input_price = cost !== nothing ? get(cost, "input", 0) : 0
       output_price = cost !== nothing ? get(cost, "output", 0) : 0
-      DBInterface.execute(db[], "INSERT INTO models VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      DBInterface.execute(db[], "INSERT OR IGNORE INTO models VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (mid, pid, mname, release_date, reasoning, tool_call, vision, context, input_price, output_price))
     end
   end
 end
 
 function __init__()
-  if !isfile(API_JSON_PATH) || (time() - mtime(API_JSON_PATH)) > ONE_WEEK
+  if !isfile(API_JSON_PATH) || (time() - mtime(API_JSON_PATH)) > 3Days
     download("https://models.dev/api.json", API_JSON_PATH)
   end
-  add_ollama_models()
   init_db!()
   populate_db!()
+  add_ollama_models()
 end
 
 function add_ollama_models(base_url::String="http://localhost:11434")
@@ -86,13 +91,8 @@ function add_ollama_models(base_url::String="http://localhost:11434")
   end
   model_list = get(models, "models", nothing)
   model_list === nothing && return
-  data = open(parse_json, API_JSON_PATH)
-  ollama = get!(data, "ollama") do
-    Dict{String,Any}("id" => "ollama", "name" => "Ollama", "logo_id" => "ollama-cloud", "models" => Dict{String,Any}())
-  end
-  raw = get!(ollama, "models") do; Dict{String,Any}() end
-  ollama_models = raw isa Dict ? raw : Dict{String,Any}(get(m, "id", "") => m for m in raw)
-  ollama["models"] = ollama_models
+  logo = get_logo("ollama-cloud")
+  DBInterface.execute(db[], "INSERT OR REPLACE INTO providers VALUES (?, ?, ?)", ("ollama", "Ollama", logo))
   for m in model_list
     id = m["name"]
     details = get(m, "details", Dict())
@@ -102,19 +102,8 @@ function add_ollama_models(base_url::String="http://localhost:11434")
       ctx_key = findfirst(k->endswith(k, ".context_length"), keys(info))
       ctx_key !== nothing ? info[ctx_key] : nothing
     end
-    input_modalities = has_vision ? ["text", "image"] : ["text"]
-    ollama_models[id] = Dict{String,Any}(
-      "id" => id,
-      "name" => id,
-      "family" => get(details, "family", ""),
-      "parameter_size" => get(details, "parameter_size", ""),
-      "quantization" => get(details, "quantization_level", ""),
-      "open_weights" => true,
-      "modalities" => Dict("input" => input_modalities, "output" => ["text"]),
-      "limit" => Dict{String,Any}("context" => context))
-  end
-  open(API_JSON_PATH, "w") do io
-    write_json(io, data)
+    DBInterface.execute(db[], "INSERT OR REPLACE INTO models VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      (id, "ollama", id, "", 0, 0, has_vision ? 1 : 0, context, 0, 0))
   end
 end
 
@@ -232,15 +221,11 @@ function search(query::AbstractString;
   [make_result(r) for r in DBInterface.execute(db[], sql, params)]
 end
 
-const LOGO_CACHE = Dict{String,String}()
-
 function get_logo(provider::AbstractString)
-  get!(LOGO_CACHE, provider) do
-    mkpath(LOGOS_DIR)
-    path = joinpath(LOGOS_DIR, "$provider.svg")
-    isfile(path) || download("https://models.dev/logos/$provider.svg", path)
-    path
-  end
+  mkpath(LOGOS_DIR)
+  path = joinpath(LOGOS_DIR, "$provider.svg")
+  isfile(path) || download("https://models.dev/logos/$provider.svg", path)
+  path
 end
 
 function parse_pricing(input_price, output_price)
