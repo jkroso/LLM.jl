@@ -70,16 +70,16 @@ messages = Message[
   UserMessage("What's the weather in Boston?")
 ]
 
-res = llm(messages; tools=tools)
-msg = read(res, String)
+stream = llm(messages; tools=tools)
+msg = read(stream, String)
 
-if res.finish_reason == FinishReason.tool_calls
-  tc = res.tool_calls[1]  # ToolCall with .id, .name, .arguments
+if stream.finish_reason == FinishReason.tool_calls
+  tc = stream.tool_calls[1]  # ToolCall with .id, .name, .arguments
   result = your_function(tc.arguments)
 
   # Send the result back
   messages = Message[messages...,
-    AIMessage(msg, res.tool_calls),
+    AIMessage(msg, stream.tool_calls),
     ToolResultMessage(tc.id, result)]
   read(llm(messages), String)
 end
@@ -87,7 +87,7 @@ end
 
 ## Structured Output
 
-### OpenAI (JSON mode)
+### JSON mode (OpenAI, Ollama)
 
 ```julia
 @use "github.com/jkroso/LLM.jl" LLM ResponseFormat
@@ -96,7 +96,7 @@ stream = llm(messages; response_format=ResponseFormat.json)
 result = read(stream, JSON) # parsed Dict
 ```
 
-### Anthropic (typed return)
+### Typed return (Anthropic, Ollama)
 
 Derive a JSON schema from a Julia struct and get back a typed result:
 
@@ -114,15 +114,15 @@ result = from_json(stream, Person) # Person("Jeb", 21)
 
 ## Images
 
-Send images via URL or base64 data:
+Send images via URL (OpenAI, Anthropic) or base64 data (all providers including Ollama):
 
 ```julia
 @use "github.com/jkroso/LLM.jl" LLM ImageURL ImageData UserMessage
 
-# URL
+# URL (OpenAI, Anthropic)
 msg = UserMessage("What's in this image?", [ImageURL("https://example.com/photo.jpg")])
 
-# Base64
+# Base64 (OpenAI, Anthropic, Ollama)
 img_bytes = read("photo.jpg")
 msg = UserMessage("Describe this", [ImageData(img_bytes, "image/jpeg")])
 ```
@@ -158,9 +158,21 @@ stream = llm(messages;
   temperature=0.7,           # sampling temperature (default 0.7)
   max_tokens=8192,            # max output tokens (default 8192)
   tools=Tool[],               # tool definitions
-  response_format=nothing,    # ResponseFormat.json (OpenAI only)
+  response_format=nothing,    # ResponseFormat.json (OpenAI, Ollama)
   reasoning_effort=nothing,   # ReasoningEffort.low/medium/high
-  return_type=nothing)        # Julia type for structured output (Anthropic only)
+  return_type=nothing)        # Julia type for structured output (Anthropic, Ollama)
+```
+
+## Reasoning
+
+For models that support chain-of-thought (e.g. Qwen3, DeepSeek R1), the thinking trace is available on the stream:
+
+```julia
+stream = llm("What is 23 * 47?"; reasoning_effort=ReasoningEffort.high)
+while !eof(stream)
+  print(String(readavailable(stream)))            # final answer
+  print(stderr, String(readavailable(stream.thinking))) # reasoning trace
+end
 ```
 
 ## Token Usage & Pricing
