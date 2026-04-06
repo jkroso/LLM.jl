@@ -5,23 +5,21 @@
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
 @use "../stream" TokenStream
-@use "../models" Price get_pricing token
+@use "../models" Price token
 
 @use Base64...
 
 mutable struct Ollama <: LLM
-  provider::String
-  model::String
+  info::NamedTuple
   session::Session
   uri::URI
-  pricing::Tuple{Price, Price}
 end
 
-function Ollama(model::String, base_url::String)
+function Ollama(info::NamedTuple, base_url::String)
   uri = parseURI(base_url)
-  finalizer(finalize, Ollama("ollama", model, Session(uri=uri), URI("/api/chat", defaults=uri), get_pricing("ollama", model)))
+  finalizer(finalize, Ollama(info, Session(uri=uri), URI("/api/chat", defaults=uri)))
 end
-Ollama(model::String) = Ollama(model, "http://localhost:11434")
+Ollama(info::NamedTuple) = Ollama(info, "http://localhost:11434")
 
 # Serialization
 
@@ -96,7 +94,7 @@ function (llm::Ollama)(messages::Vector{<:Message};
                        reasoning_effort::Union{ReasoningEffort,Nothing}=nothing,
                        return_type::Union{Type,Nothing}=nothing)
   payload = Dict{String,Any}(
-    "model" => llm.model,
+    "model" => llm.info.id,
     "messages" => [to_ollama(m) for m in messages],
     "stream" => true,
     "options" => Dict{String,Any}("temperature" => temperature, "num_predict" => max_tokens))

@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" get_pricing search Mtoken token
+@use "./models" search Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -22,27 +22,24 @@ struct TestGreeting
 end
 
 @testset "LLM" begin
-  config = Dict{String,Any}()
-  @test LLM("claude-3-haiku", config) isa Anthropic
-  @test LLM("anthropic-model", config) isa Anthropic
-  @test LLM("gpt-4", config) isa OpenAI
-  @test LLM("o1-mini", config) isa OpenAI
-  @test LLM("o3-mini", config) isa OpenAI
-  @test LLM("o4-mini", config) isa OpenAI
-  @test LLM("gemini-pro", config) isa Google
-  @test LLM("mistral-large", config) isa OpenAI
-  @test LLM("deepseek-chat", config) isa OpenAI
-  @test LLM("grok-2", config) isa OpenAI
-  @test LLM("ollama:llama3", config) isa Ollama
-  @test LLM("unknown-model", config) isa Ollama # defaults to Ollama
+  @test LLM("anthropic/claude-haiku-4-5") isa Anthropic
+  @test LLM("openai/gpt-4o") isa OpenAI
+  @test LLM("openai/o3-mini") isa OpenAI
+  @test LLM("google/gemini-2.0-flash") isa Google
+  @test LLM("mistral/mistral-large-latest") isa OpenAI
+  @test LLM("deepseek/deepseek-chat") isa OpenAI
+  @test LLM("xai/grok-2") isa OpenAI
+  @test LLM("ollama/gemma4:31b") isa Ollama
+  @test LLM("anthropic/claude-haiku-4-5").info.provider == "anthropic"
+  @test LLM("xai/grok-2").info.provider == "xai"
+  @test LLM("mistral/mistral-large-latest").info.provider == "mistral"
 end
 
 @testset "LLM base URLs" begin
-  config = Dict{String,Any}()
-  @test LLM("mistral-large", config).session.uri.host == "api.mistral.ai"
-  @test LLM("deepseek-chat", config).session.uri.host == "api.deepseek.com"
-  @test LLM("grok-2", config).session.uri.host == "api.x.ai"
-  @test LLM("gpt-4", config).session.uri.host == "api.openai.com"
+  @test LLM("mistral/mistral-large-latest").session.uri.host == "api.mistral.ai"
+  @test LLM("deepseek/deepseek-chat").session.uri.host == "api.deepseek.com"
+  @test LLM("xai/grok-2").session.uri.host == "api.x.ai"
+  @test LLM("openai/gpt-4o").session.uri.host == "api.openai.com"
 end
 
 
@@ -114,9 +111,9 @@ end
   @test any(r -> r.provider == "ollama" && r.id == first_model, name_results)
 end
 
-@testset "get_pricing" begin
-  @test get_pricing("openai", "nonexistent-model") == (0.0USD/Mtoken(1), 0.0USD/Mtoken(1))
-  (input_price, output_price) = get_pricing("anthropic", "claude-haiku-4-5")
+@testset "pricing" begin
+  results = search("", "claude-haiku-4-5", allowed_providers="anthropic", max_results=1)
+  (input_price, output_price) = results[1].pricing
   @test token(1_000_000) * input_price > 0.0USD
   @test token(1_000_000) * output_price > 0.0USD
 end

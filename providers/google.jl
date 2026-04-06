@@ -5,21 +5,19 @@
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./abstract_provider" LLM post finalize
 @use "../stream" TokenStream sse
-@use "../models" Price get_pricing token
+@use "../models" Price token
 
 mutable struct Google <: LLM
-  provider::String
-  model::String
+  info::NamedTuple
   api_key::String
   session::Session
   uri::URI
-  pricing::Tuple{Price, Price}
 end
 
-function Google(model::String, api_key::String)
+function Google(info::NamedTuple, api_key::String)
   base = parseURI("https://generativelanguage.googleapis.com")
-  uri = URI("/v1beta/models/$model:streamGenerateContent?alt=sse&key=$api_key", defaults=base)
-  finalizer(finalize, Google("google", model, api_key, Session(uri=base), uri, get_pricing("google", model)))
+  uri = URI("/v1beta/models/$(info.id):streamGenerateContent?alt=sse&key=$api_key", defaults=base)
+  finalizer(finalize, Google(info, api_key, Session(uri=base), uri))
 end
 
 function google_parse_event(s::TokenStream, data::AbstractString)

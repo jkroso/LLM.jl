@@ -4,23 +4,21 @@
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "github.com/jkroso/URI.jl" URI
 @use "./abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
-@use "../models" Price get_pricing token
+@use "../models" Price token
 @use "../stream" TokenStream sse
 
 using Base64
 
 mutable struct Anthropic <: LLM
-  provider::String
-  model::String
+  info::NamedTuple
   api_key::String
   session::Session
   uri::URI
-  pricing::Tuple{Price, Price}
 end
 
-function Anthropic(model::String, api_key::String)
+function Anthropic(info::NamedTuple, api_key::String)
   uri = parseURI(get(ENV, "ANTHROPIC_BASE_URL", "https://api.anthropic.com"))
-  finalizer(finalize, Anthropic("anthropic", model, api_key, Session(uri=uri), URI("/v1/messages", defaults=uri), get_pricing("anthropic", model)))
+  finalizer(finalize, Anthropic(info, api_key, Session(uri=uri), URI("/v1/messages", defaults=uri)))
 end
 
 # Serialization
@@ -144,7 +142,7 @@ function (llm::Anthropic)(messages::Vector{<:Message};
   other_msgs = [m for m in messages if !(m isa SystemMessage)]
 
   payload = Dict{String,Any}(
-    "model" => llm.model,
+    "model" => llm.info.id,
     "messages" => [to_anthropic(m) for m in other_msgs],
     "temperature" => temperature,
     "max_tokens" => max_tokens,

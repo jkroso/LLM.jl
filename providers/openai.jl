@@ -3,24 +3,22 @@
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "github.com/jkroso/URI.jl" URI
 @use "./abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document
-@use "../models" Price get_pricing token
+@use "../models" Price token
 @use "../stream" TokenStream sse
 @use Base64...
 
 mutable struct OpenAI <: LLM
-  provider::String
-  model::String
+  info::NamedTuple
   api_key::String
   session::Session
   uri::URI
-  pricing::Tuple{Price, Price}
 end
 
-function OpenAI(model::String, api_key::String, base_url::String; provider::String="openai")
+function OpenAI(info::NamedTuple, api_key::String, base_url::String)
   uri = parseURI(base_url)
-  finalizer(finalize, OpenAI(provider, model, api_key, Session(uri=uri), URI("/v1/chat/completions", defaults=uri), get_pricing(provider, model)))
+  finalizer(finalize, OpenAI(info, api_key, Session(uri=uri), URI("/v1/chat/completions", defaults=uri)))
 end
-OpenAI(model::String, api_key::String; provider::String="openai") = OpenAI(model, api_key, "https://api.openai.com"; provider)
+OpenAI(info::NamedTuple, api_key::String) = OpenAI(info, api_key, "https://api.openai.com")
 
 # Serialization
 
@@ -128,7 +126,7 @@ function (llm::OpenAI)(messages::Vector{<:Message};
                        response_format::Union{ResponseFormat,Nothing}=nothing,
                        reasoning_effort::Union{ReasoningEffort,Nothing}=nothing)
   payload = Dict{String,Any}(
-    "model" => llm.model,
+    "model" => llm.info.id,
     "messages" => [to_openai(m) for m in messages],
     "temperature" => temperature,
     "max_completion_tokens" => max_tokens,

@@ -15,12 +15,14 @@ const provider_cache = Dict{String, Vector}()
 
 function parse_provider(pid, provider_data)
   logo = get_logo(get(provider_data, "logo_id", pid))
+  env = get(provider_data, "env", String[])
   models = get(provider_data, "models", nothing)
   models === nothing && return []
   results = map(collect(models isa Dict ? values(models) : models)) do m
     modalities = get(m, "modalities", nothing)
     (provider = String(pid),
      logo = logo,
+     env = env,
      id = get(m, "id", ""),
      name = get(m, "name", ""),
      release_date = get(m, "release_date", ""),
@@ -188,9 +190,4 @@ function parse_pricing(cost)
   output_price = get(cost, "output", nothing)
   (input_price === nothing || output_price === nothing) && return zero_price
   (Float64(input_price) * USD/Mtoken, Float64(output_price) * USD/Mtoken)
-end
-
-function get_pricing(provider::String, model::String)
-  results = search("", model, allowed_providers=provider, max_results=1)
-  isempty(results) ? zero_price : results[1].pricing
 end
