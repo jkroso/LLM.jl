@@ -2,17 +2,7 @@
 
 LLMs are fundamentally functions of the form `llm(msg::String)::String`. This library gives you all the LLMs in basically that form. Though you will probably want to take advantage of the unique features of each LLM. It enables that too.
 
-## Supported Providers
-
-| Provider | Model prefixes | API |
-|----------|---------------|-----|
-| xAI | `grok*` | OpenAI-compatible |
-| OpenAI | `gpt*`, `o1*`, `o3*`, `o4*` | OpenAI |
-| Anthropic | `claude*`, `anthropic*` | Anthropic |
-| Google | `gemini*` | Gemini |
-| Mistral | `mistral*` | OpenAI-compatible |
-| DeepSeek | `deepseek*` | OpenAI-compatible |
-| Ollama | `ollama:*` or any unrecognized model | Local |
+Model metadata (pricing, capabilities, env vars) is sourced from [models.dev](https://models.dev).
 
 ## Usage
 
@@ -21,7 +11,7 @@ Requires [Kip.jl](https://github.com/jkroso/Kip.jl):
 ```julia
 @use "github.com/jkroso/LLM.jl" LLM
 
-llm = LLM("claude-sonnet-4-5-20250929")
+llm = LLM("anthropic/claude-sonnet-4-5-20250929")
 
 # Simple call with system + user prompt
 stream = llm("You are a helpful assistant", "What is Julia?")
@@ -34,7 +24,30 @@ while !eof(stream)
 end
 ```
 
-Connections are kept alive across calls via HTTP Sessions, so repeated requests to the same provider reuse the TCP connection.
+The `provider/model` format ensures the correct provider is selected. Connections are kept alive across calls via HTTP Sessions.
+
+## Model Search
+
+Find models by provider, name, or capabilities:
+
+```julia
+@use "github.com/jkroso/LLM.jl/models" search
+
+# Search by model name within a provider
+search("", "claude", allowed_providers="anthropic")
+
+# Search across specific providers
+search(allowed_providers=["anthropic", "openai"])
+
+# Filter by capabilities
+search("", "", allowed_providers="openai", reasoning=true)
+search("", "", allowed_providers="anthropic", vision=true)
+
+# Single-arg OR search (matches provider or model name)
+search("gpt")
+```
+
+Results are named tuples with fields: `provider`, `logo`, `env`, `id`, `name`, `release_date`, `reasoning`, `tool_call`, `modalities`, `vision`, `context`, `pricing`.
 
 ## Multi-turn Conversations
 
@@ -54,8 +67,6 @@ read(llm(messages), String) # "Your name is Alice!"
 ```
 
 ## Tool Calling
-
-To offer up tools in the LLM's preferred format you can pass a tools parameter:
 
 ```julia
 @use "github.com/jkroso/LLM.jl" LLM Tool ToolCall ToolResultMessage FinishReason Message SystemMessage UserMessage
@@ -136,33 +147,6 @@ pdf_bytes = read("document.pdf")
 msg = UserMessage("Summarize this", Image[], Audio[], [Document(pdf_bytes, "application/pdf")])
 ```
 
-## Finish Reason
-
-Check why the model stopped generating:
-
-```julia
-@use "github.com/jkroso/LLM.jl" FinishReason
-
-stream.finish_reason == FinishReason.stop        # natural completion
-stream.finish_reason == FinishReason.length       # hit max_tokens
-stream.finish_reason == FinishReason.tool_calls   # wants to call tools
-stream.finish_reason == FinishReason.content_filter # content filtered
-```
-
-Values are normalized across providers.
-
-## Additional Parameters
-
-```julia
-stream = llm(messages;
-  temperature=0.7,           # sampling temperature (default 0.7)
-  max_tokens=8192,            # max output tokens (default 8192)
-  tools=Tool[],               # tool definitions
-  response_format=nothing,    # ResponseFormat.json (OpenAI, Ollama)
-  reasoning_effort=nothing,   # ReasoningEffort.low/medium/high
-  return_type=nothing)        # Julia type for structured output (Anthropic, Ollama)
-```
-
 ## Reasoning
 
 For models that support chain-of-thought (e.g. Qwen3, DeepSeek R1), the thinking trace is available on the stream:
@@ -177,53 +161,39 @@ end
 
 ## Token Usage & Pricing
 
-Pricing is cached on each LLM instance at construction from [models.dev](https://models.dev) data. Token counts are available on the stream after reading, so you can compute cost:
+Pricing is stored on each LLM instance from [models.dev](https://models.dev) data. Token counts are available on the stream after reading:
 
 ```julia
 stream = llm("hi")
-read(stream, String) # must be read fully before tokens and pricing become available
+read(stream, String)
 
-stream.tokens # a tuple (input_tokens, output_tokens) in units of token
-llm.pricing   # a tuple (input_price, output_price) in units of USD/Mtoken
-cost = sum(stream.tokens .* llm.pricing) # e.g. 0.02 USD
+stream.tokens    # (input_tokens, output_tokens) in units of token
+llm.info.pricing # (input_price, output_price) in units of USD/Mtoken
+cost = sum(stream.tokens .* llm.info.pricing)
 ```
 
 ## API Keys
 
-Set via environment variables or pass in a config dict:
+API keys are resolved from environment variables (sourced from models.dev metadata) or a config dict:
 
-| Provider | Env variable |
-|----------|-------------|
-| xAI | `XAI_API_KEY` |
-| OpenAI | `OPENAI_API_KEY` |
-| Anthropic | `ANTHROPIC_API_KEY` |
-| Google | `GOOGLE_API_KEY` |
-| Mistral | `MISTRAL_API_KEY` |
-| DeepSeek | `DEEPSEEK_API_KEY` |
+```julia
+# Environment variables are auto-detected per provider (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY)
+llm = LLM("openai/gpt-4o")
+
+# Or pass explicitly via config dict
+llm = LLM("openai/gpt-4o", Dict("openai_key" => "sk-..."))
+```
 
 Anthropic also supports `ANTHROPIC_BASE_URL` for custom endpoints.
 
-```julia
-# Using config dict
-llm = LLM("gpt-4", Dict("openai_key" => "sk-..."))
-```
-
-## Direct Provider Construction
-
-You can also construct providers directly instead of using `LLM`:
+## Additional Parameters
 
 ```julia
-@use "github.com/jkroso/LLM.jl/providers" OpenAI Anthropic Google Ollama
-
-llm = Anthropic("claude-sonnet-4-5-20250929", ENV["ANTHROPIC_API_KEY"])
-llm = OpenAI("gpt-4", ENV["OPENAI_API_KEY"])
-llm = Google("gemini-pro", ENV["GOOGLE_API_KEY"])
-llm = Ollama("llama3")
-llm = Ollama("llama3", "http://remote-host:11434")
-
-# OpenAI-compatible providers
-llm = OpenAI("mistral-large", ENV["MISTRAL_API_KEY"], "https://api.mistral.ai")
-
-# Clean up when done or let GC do it
-close(llm)
+stream = llm(messages;
+  temperature=0.7,           # sampling temperature (default 0.7)
+  max_tokens=8192,           # max output tokens (default 8192)
+  tools=Tool[],              # tool definitions
+  response_format=nothing,   # ResponseFormat.json (OpenAI, Ollama)
+  reasoning_effort=nothing,  # ReasoningEffort.low/medium/high
+  return_type=nothing)       # Julia type for structured output (Anthropic, Ollama)
 ```
