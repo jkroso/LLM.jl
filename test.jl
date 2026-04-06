@@ -95,7 +95,7 @@ end
 
   # filter by vision
   results = search("", "", allowed_providers=["anthropic", "openai"], vision=true, max_results=5)
-  @test all(r -> "image" in r.modalities["input"], results)
+  @test all(r -> "image" in r.modalities.input, results)
 
   # no results for nonsense query
   @test isempty(search("", "zzz_nonexistent_model_xyz", allowed_providers="openai"))

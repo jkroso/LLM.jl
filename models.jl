@@ -19,7 +19,9 @@ function parse_provider(pid, provider_data)
   models = get(provider_data, "models", nothing)
   models === nothing && return []
   results = map(collect(models isa Dict ? values(models) : models)) do m
-    modalities = get(m, "modalities", nothing)
+    raw_mod = get(m, "modalities", nothing)
+    input_mod = raw_mod !== nothing ? get(raw_mod, "input", String[]) : String[]
+    output_mod = raw_mod !== nothing ? get(raw_mod, "output", String[]) : String[]
     (provider = String(pid),
      logo = logo,
      env = env,
@@ -28,8 +30,8 @@ function parse_provider(pid, provider_data)
      release_date = get(m, "release_date", ""),
      reasoning = get(m, "reasoning", false),
      tool_call = get(m, "tool_call", false),
-     modalities = modalities,
-     vision = modalities !== nothing && "image" in get(modalities, "input", String[]),
+     modalities = (input=input_mod, output=output_mod),
+     vision = "image" in input_mod,
      context = let l = get(m, "limit", nothing); l !== nothing ? get(l, "context", nothing) : nothing end,
      pricing = parse_pricing(get(m, "cost", nothing)))
   end
