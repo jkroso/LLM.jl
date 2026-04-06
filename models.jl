@@ -73,8 +73,8 @@ end
 function __init__()
   if !isfile(API_JSON_PATH) || (time() - mtime(API_JSON_PATH)) > 3Days
     download("https://models.dev/api.json", API_JSON_PATH)
+    add_ollama_models()
   end
-  add_ollama_models()
 end
 
 function add_ollama_models(base_url::String="http://localhost:11434")

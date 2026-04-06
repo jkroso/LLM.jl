@@ -20,16 +20,8 @@ function get_api_key(info::NamedTuple, config::Dict)
   ""
 end
 
-"Create an LLM instance from a model name string and config dict"
-function LLM(model::String, config::Dict=Dict())
-  provider = ""
-  if contains(model, '/')
-    provider, model = split(model, '/'; limit=2)
-  end
-  ap = isempty(provider) ? String[] : [provider]
-  results = search("", model, allowed_providers=ap, max_results=1)
-  @assert length(results) == 1 "Model '$model' not found"
-  info = results[1]
+"Create an LLM instance from a model info NamedTuple and config dict"
+function LLM(info::NamedTuple, config::Dict)
   pid = info.provider
   if pid == "ollama"
     Ollama(info, get(config, "ollama_url", "http://localhost:11434"))
@@ -42,4 +34,16 @@ function LLM(model::String, config::Dict=Dict())
     url = get(PROVIDER_URLS, pid, nothing)
     url !== nothing ? OpenAI(info, api_key, url) : OpenAI(info, api_key)
   end
+end
+
+"Create an LLM instance from a model name string and config dict"
+function LLM(model::String, config::Dict=Dict())
+  provider = ""
+  if contains(model, '/')
+    provider, model = split(model, '/'; limit=2)
+  end
+  ap = isempty(provider) ? String[] : [provider]
+  results = search("", model, allowed_providers=ap, max_results=1)
+  @assert length(results) == 1 "Model '$model' not found"
+  LLM(results[1], config)
 end
