@@ -1,6 +1,7 @@
 @use "github.com/jkroso/Units.jl" @defunit Dimension ["Money" USD]
 @use "github.com/jkroso/JSON.jl" parse_json write_json JSON
 @use "github.com/jkroso/HTTP.jl/client" GET POST send
+@use Serialization: serialize, deserialize
 
 abstract type Tokens <: Dimension end
 @defunit Token <: Tokens [k M]token
@@ -8,6 +9,7 @@ abstract type Tokens <: Dimension end
 const Price = USD/Mtoken
 const zero_price = (0.0USD/Mtoken, 0.0USD/Mtoken)
 const API_JSON_PATH = joinpath(@__DIR__, "api.json")
+const CACHE_PATH = joinpath(@__DIR__, "models.jls")
 const LOGOS_DIR = joinpath(@__DIR__, "logos")
 const Days = 24 * 60 * 60 # in seconds
 
@@ -38,35 +40,19 @@ function parse_provider(pid, provider_data)
   sort!(results, by=r->r.release_date, rev=true)
 end
 
-function load_provider(pid::AbstractString)
-  get!(provider_cache, pid) do
-    data = open(parse_json, API_JSON_PATH)
-    provider_data = get(data, pid, nothing)
-    provider_data === nothing && return []
-    parse_provider(pid, provider_data)
-  end
-end
-
-function load_providers(pids::AbstractVector{<:AbstractString})
-  missing_pids = filter(pid -> !haskey(provider_cache, pid), pids)
-  if !isempty(missing_pids)
-    data = open(parse_json, API_JSON_PATH)
-    for pid in missing_pids
-      provider_data = get(data, pid, nothing)
-      provider_data === nothing && continue
-      provider_cache[pid] = parse_provider(pid, provider_data)
+function load_providers(pids)
+  missing = filter(pid -> !haskey(provider_cache, pid), pids)
+  if !isempty(missing)
+    all = deserialize(CACHE_PATH)
+    for pid in missing
+      provider_cache[pid] = get(all, pid, [])
     end
   end
   vcat([get(provider_cache, pid, []) for pid in pids]...)
 end
 
 function all_models()
-  data = open(parse_json, API_JSON_PATH)
-  for (pid, provider_data) in data
-    haskey(provider_cache, pid) && continue
-    provider_cache[pid] = parse_provider(pid, provider_data)
-  end
-  result = vcat(values(provider_cache)...)
+  result = vcat(values(deserialize(CACHE_PATH))...)
   sort!(result, by=r->r.release_date, rev=true)
 end
 
@@ -74,6 +60,14 @@ function __init__()
   if !isfile(API_JSON_PATH) || (time() - mtime(API_JSON_PATH)) > 3Days
     download("https://models.dev/api.json", API_JSON_PATH)
     add_ollama_models()
+  end
+  if !isfile(CACHE_PATH) || mtime(CACHE_PATH) < mtime(API_JSON_PATH)
+    data = open(parse_json, API_JSON_PATH)
+    cache = Dict{String, Vector}()
+    for (pid, provider_data) in data
+      cache[pid] = parse_provider(pid, provider_data)
+    end
+    open(io->serialize(io, cache), CACHE_PATH, "w")
   end
 end
 
@@ -128,7 +122,6 @@ function get_ollama_model_info(base_url::String, model::String)
     nothing
   end
 end
-
 
 function matches(r; provider="", model="", reasoning=nothing, vision=nothing)
   !isempty(provider) && !occursin(provider, lowercase(r.provider)) && return false
