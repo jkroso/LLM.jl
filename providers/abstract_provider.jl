@@ -1,7 +1,6 @@
-@use "github.com/jkroso/HTTP.jl/client" Request Header connect
-@use "github.com/jkroso/HTTP.jl/client/Session" Session
-@use "github.com/jkroso/URI.jl" URI
+@use "github.com/jkroso/HTTP.jl/client" Request Header connect ["Session" Session]
 @use "github.com/jkroso/Prospects.jl/Enum" @Enum
+@use "github.com/jkroso/URI.jl" URI
 
 abstract type LLM end
 

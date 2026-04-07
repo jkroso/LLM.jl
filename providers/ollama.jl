@@ -1,12 +1,9 @@
-@use "github.com/jkroso/HTTP.jl/client" parseURI send
-@use "github.com/jkroso/HTTP.jl/client/Session" Session
+@use "github.com/jkroso/HTTP.jl/client" parseURI send ["Session" Session]
+@use "github.com/jkroso/JSON.jl" parse_json JSON
 @use "github.com/jkroso/URI.jl" URI
-@use "github.com/jkroso/JSON.jl" parse_json
-@use "github.com/jkroso/JSON.jl/write" JSON
 @use "./abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
 @use "../stream" TokenStream
 @use "../models" Price token
-
 @use Base64...
 
 mutable struct Ollama <: LLM

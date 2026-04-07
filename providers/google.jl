@@ -1,8 +1,6 @@
-@use "github.com/jkroso/HTTP.jl/client" parseURI send
-@use "github.com/jkroso/HTTP.jl/client/Session" Session
+@use "github.com/jkroso/HTTP.jl/client" parseURI send ["Session" Session]
+@use "github.com/jkroso/JSON.jl" parse_json JSON
 @use "github.com/jkroso/URI.jl" URI
-@use "github.com/jkroso/JSON.jl" parse_json
-@use "github.com/jkroso/JSON.jl/write" JSON
 @use "./abstract_provider" LLM post finalize
 @use "../stream" TokenStream sse
 @use "../models" Price token
