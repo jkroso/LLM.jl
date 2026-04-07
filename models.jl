@@ -48,11 +48,11 @@ function load_providers(pids)
       provider_cache[pid] = get(all, pid, [])
     end
   end
-  vcat([get(provider_cache, pid, []) for pid in pids]...)
+  vcat([provider_cache[pid] for pid in pids]...)
 end
 
 function all_models()
-  result = vcat(values(deserialize(CACHE_PATH))...)
+  result = collect(values(deserialize(CACHE_PATH)))
   sort!(result, by=r->r.release_date, rev=true)
 end
 
