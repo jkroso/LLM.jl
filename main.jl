@@ -1,11 +1,10 @@
-@use "./providers"... OpenAI Anthropic Google Ollama
+@use "./providers"... OpenAI Anthropic Google Ollama XAI
 @use "./stream" from_json
 @use "./models" search
 
 const PROVIDER_URLS = Dict(
   "mistral"  => "https://api.mistral.ai",
   "deepseek" => "https://api.deepseek.com",
-  "xai"      => "https://api.x.ai",
 )
 
 "Look up the API key for a model from config dict or environment variables"
@@ -28,6 +27,8 @@ function LLM(info::NamedTuple, config::Dict)
     Anthropic(info, get_api_key(info, config))
   elseif pid == "google"
     Google(info, get_api_key(info, config))
+  elseif pid == "xai"
+    XAI(info, get_api_key(info, config))
   else
     api_key = get_api_key(info, config)
     url = get(PROVIDER_URLS, pid, nothing)

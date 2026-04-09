@@ -3,6 +3,7 @@
 @use "./anthropic" Anthropic
 @use "./google" Google
 @use "./ollama" Ollama
+@use "./xai" XAI
 
 export LLM, Message, SystemMessage, UserMessage, AIMessage, ToolResultMessage, 
        ImageURL, ImageData, Audio, Image, Tool, ToolCall, ReasoningEffort, 
