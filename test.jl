@@ -1,4 +1,4 @@
-@use "./providers" OpenAI Anthropic Google Ollama
+@use "./providers" OpenAI Anthropic Google Ollama XAI
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
 @use "./models" search Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
@@ -6,7 +6,10 @@
 @use "./providers/anthropic" to_anthropic
 @use "./providers/openai" to_openai
 @use "./providers/ollama" to_ollama
-@use "./stream" from_json
+@use "./providers/xai" to_xai make_xai_parser
+@use "./stream" TokenStream sse from_json
+@use "./models" token
+@use "github.com/jkroso/HTTP.jl/client" Response Header
 @use "." LLM
 @use Test...
 
@@ -28,7 +31,7 @@ end
   @test LLM("google/gemini-2.0-flash") isa Google
   @test LLM("mistral/mistral-large-latest") isa OpenAI
   @test LLM("deepseek/deepseek-chat") isa OpenAI
-  @test LLM("xai/grok-2") isa OpenAI
+  @test LLM("xai/grok-2") isa XAI
   @test LLM("ollama/gemma4:31b") isa Ollama
   @test LLM("anthropic/claude-haiku-4-5").info.provider == "anthropic"
   @test LLM("xai/grok-2").info.provider == "xai"
@@ -301,4 +304,69 @@ end
   @test schema["properties"]["age"] == Dict("type" => "integer")
   @test Set(schema["required"]) == Set(["name", "age"])
   @test schema["additionalProperties"] == false
+end
+
+@testset "to_xai serialization" begin
+  # UserMessage — text only
+  @test to_xai(UserMessage("hello")) == Dict("type" => "message", "role" => "user", "content" => "hello")
+
+  # UserMessage — with image URL
+  msg = UserMessage("what's this?", [ImageURL("https://example.com/img.png")])
+  result = to_xai(msg)
+  @test result["type"] == "message"
+  @test result["content"][1] == Dict("type" => "input_text", "text" => "what's this?")
+  @test result["content"][2] == Dict("type" => "input_image", "image_url" => "https://example.com/img.png")
+
+  # AIMessage
+  @test to_xai(AIMessage("hi")) == Dict("type" => "message", "role" => "assistant", "content" => "hi")
+
+  # ToolResultMessage
+  @test to_xai(ToolResultMessage("call_1", "42")) == Dict("type" => "function_call_output", "call_id" => "call_1", "output" => "42")
+
+  # Tool
+  params = Dict("type" => "object", "properties" => Dict("x" => Dict("type" => "number")))
+  tool = Tool("calc", "Calculate", params)
+  @test to_xai(tool) == Dict("type" => "function", "name" => "calc", "description" => "Calculate", "parameters" => params)
+end
+
+@testset "xAI parser" begin
+  llm = XAI((id="grok-4", provider="xai", env=String[], name="Grok 4", pricing=(0,0), release_date="", reasoning=false, modalities=(input=String[], output=String[])), "fake")
+
+  # Helper to create a TokenStream without a real HTTP response
+  function make_test_stream(llm)
+    parser = sse(make_xai_parser(llm))
+    resp = Response(Int16(200), Header(), IOBuffer())
+    TokenStream(resp, parser)
+  end
+
+  # Build a stream and feed it SSE lines simulating a code_interpreter response
+  s = make_test_stream(llm)
+
+  # response.created — captures response ID
+  s.parse_line(s, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_abc123\"}}")
+  @test llm.last_response_id == "resp_abc123"
+
+  # text deltas
+  s.parse_line(s, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"The answer is \"}")
+  s.parse_line(s, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"22,791,481\"}")
+  @test String(take!(s.buf)) == "The answer is 22,791,481"
+
+  # function_call tool result
+  s.parse_line(s, """data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_99","name":"code_interpreter","arguments":"{\\\"code\\\":\\\"3847 * 5923\\\"}"}}""")
+  @test length(s.tool_calls) == 1
+  @test s.tool_calls[1].name == "code_interpreter"
+  @test s.tool_calls[1].arguments["code"] == "3847 * 5923"
+
+  # response.completed — sets usage and done
+  s.parse_line(s, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_abc123\",\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":25}}}")
+  @test s.done == true
+  @test s.finish_reason == FinishReason.stop
+  @test s.tokens[1] == token(10)
+  @test s.tokens[2] == token(25)
+
+  # incomplete response sets length finish reason
+  s2 = make_test_stream(llm)
+  s2.parse_line(s2, """data: {"type":"response.completed","response":{"id":"resp_xyz","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":5,"output_tokens":100}}}""")
+  @test s2.finish_reason == FinishReason.length
+  @test s2.done == true
 end
