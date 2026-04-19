@@ -40,10 +40,31 @@ function parse_provider(pid, provider_data)
   sort!(results, by=r->r.release_date, rev=true)
 end
 
+"Rebuild the on-disk provider cache from api.json and return the new dict"
+function build_cache()
+  data = open(parse_json, API_JSON_PATH)
+  cache = Dict{String, Vector}()
+  for (pid, provider_data) in data
+    cache[pid] = parse_provider(pid, provider_data)
+  end
+  open(io->serialize(io, cache), CACHE_PATH, "w")
+  cache
+end
+
+"Deserialize the provider cache, rebuilding from api.json if the file is missing or references modules that no longer load"
+function load_cache()
+  isfile(CACHE_PATH) || return build_cache()
+  try
+    deserialize(CACHE_PATH)
+  catch
+    build_cache()
+  end
+end
+
 function load_providers(pids)
   missing = filter(pid -> !haskey(provider_cache, pid), pids)
   if !isempty(missing)
-    all = deserialize(CACHE_PATH)
+    all = load_cache()
     for pid in missing
       provider_cache[pid] = get(all, pid, [])
     end
@@ -52,7 +73,7 @@ function load_providers(pids)
 end
 
 function all_models()
-  result = collect(values(deserialize(CACHE_PATH)))
+  result = collect(values(load_cache()))
   sort!(result, by=r->r.release_date, rev=true)
 end
 
@@ -62,12 +83,7 @@ function __init__()
     add_ollama_models()
   end
   if !isfile(CACHE_PATH) || mtime(CACHE_PATH) < mtime(API_JSON_PATH)
-    data = open(parse_json, API_JSON_PATH)
-    cache = Dict{String, Vector}()
-    for (pid, provider_data) in data
-      cache[pid] = parse_provider(pid, provider_data)
-    end
-    open(io->serialize(io, cache), CACHE_PATH, "w")
+    build_cache()
   end
 end
 
