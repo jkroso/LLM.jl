@@ -127,10 +127,10 @@ function (llm::OpenAI)(messages::Vector{<:Message};
   payload = Dict{String,Any}(
     "model" => llm.info.id,
     "messages" => [to_openai(m) for m in messages],
-    "temperature" => temperature,
     "max_completion_tokens" => max_tokens,
     "stream" => true,
     "stream_options" => Dict("include_usage" => true))
+  llm.info.temperature && (payload["temperature"] = temperature)
   !isempty(tools) && (payload["tools"] = [to_openai(t) for t in tools])
   if response_format !== nothing
     fmt = response_format == ResponseFormat.json ? "json_object" : "text"

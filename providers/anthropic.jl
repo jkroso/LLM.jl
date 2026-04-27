@@ -141,9 +141,9 @@ function (llm::Anthropic)(messages::Vector{<:Message};
   payload = Dict{String,Any}(
     "model" => llm.info.id,
     "messages" => [to_anthropic(m) for m in other_msgs],
-    "temperature" => temperature,
     "max_tokens" => max_tokens,
     "stream" => true)
+  llm.info.temperature && (payload["temperature"] = temperature)
   !isempty(system_msgs) && (payload["system"] = join([m.text for m in system_msgs], "\n"))
   !isempty(tools) && (payload["tools"] = [to_anthropic(t) for t in tools])
 

@@ -32,6 +32,11 @@ function parse_provider(pid, provider_data)
      release_date = get(m, "release_date", ""),
      reasoning = get(m, "reasoning", false),
      tool_call = get(m, "tool_call", false),
+     # Some reasoning-tier models (Anthropic Opus 4.7+, OpenAI gpt-5.x, ...)
+     # reject the `temperature` parameter outright. The api.json registry
+     # marks these with `"temperature": false`. Default to `true` since
+     # the vast majority of models accept temperature.
+     temperature = get(m, "temperature", true),
      modalities = (input=input_mod, output=output_mod),
      vision = "image" in input_mod,
      context = let l = get(m, "limit", nothing); l !== nothing ? get(l, "context", nothing) : nothing end,

@@ -91,9 +91,9 @@ function (llm::XAI)(messages::Vector{<:Message};
 
   payload = Dict{String,Any}(
     "model" => llm.info.id,
-    "temperature" => temperature,
     "max_output_tokens" => max_tokens,
     "stream" => true)
+  llm.info.temperature && (payload["temperature"] = temperature)
 
   if previous_response_id !== nothing
     payload["previous_response_id"] = previous_response_id
