@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama XAI
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" search enrich_live_model provider_models provider_cache live_model_fetchers load_providers parse_openai_models parse_ollama_models Mtoken token
+@use "./models" search enrich_live_model provider_models provider_cache live_model_fetchers live_provider_cache load_providers parse_openai_models parse_ollama_models provider_api_key configured_live_model_fetchers Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -162,6 +162,12 @@ end
   @test [r.id for r in results] == ["gpt-4.1", "whisper-1"]
   @test all(r -> r.provider == "openai", results)
   @test all(r -> r.name == r.id, results)
+
+  @test provider_api_key("openai", Dict("openai_key" => "sk-config")) == "sk-config"
+  configured = configured_live_model_fetchers(Dict("openai_key" => "sk-config"))
+  @test haskey(configured, "openai")
+  configured_again = configured_live_model_fetchers(Dict("openai_key" => "sk-config"))
+  @test configured["openai"] === configured_again["openai"]
 end
 
 @testset "ollama model list parser" begin
@@ -238,6 +244,26 @@ end
     else
       pop!(provider_cache, "openai", nothing)
     end
+  end
+
+  live_provider_cache_before = copy(live_provider_cache)
+  try
+    empty!(live_provider_cache)
+    attempts = Ref(0)
+    live_fetchers = Dict("openai" => () -> begin
+      attempts[] += 1
+      Any[(provider="openai", id="gpt-cached", name="gpt-cached")]
+    end)
+
+    first = provider_models("openai", registry; live_fetchers)
+    second = provider_models("openai", registry; live_fetchers)
+
+    @test [r.id for r in first] == ["gpt-cached"]
+    @test [r.id for r in second] == ["gpt-cached"]
+    @test attempts[] == 1
+  finally
+    empty!(live_provider_cache)
+    merge!(live_provider_cache, live_provider_cache_before)
   end
 end
 

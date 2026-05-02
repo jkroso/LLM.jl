@@ -15,6 +15,8 @@ const Days = 24 * 60 * 60 # in seconds
 
 const provider_cache = Dict{String, Vector}()
 const live_model_fetchers = Dict{String,Function}()
+const live_provider_cache = Dict{Tuple{String,UInt},Vector}()
+const configured_fetcher_cache = Dict{Tuple{String,UInt},Function}()
 const OPENAI_COMPATIBLE_URLS = Dict(
   "openai" => "https://api.openai.com",
   "mistral" => "https://api.mistral.ai",
@@ -39,7 +41,9 @@ function parse_ollama_models(data)
   [(provider="ollama", id=String(m["name"]), name=String(m["name"])) for m in models if haskey(m, "name")]
 end
 
-function provider_api_key(pid::AbstractString)
+function provider_api_key(pid::AbstractString, config::Dict=Dict())
+  key = get(config, "$(pid)_key", nothing)
+  key !== nothing && return string(key)
   for env in get(PROVIDER_ENVS, pid, String[])
     key = get(ENV, env, nothing)
     key !== nothing && return key
@@ -47,8 +51,8 @@ function provider_api_key(pid::AbstractString)
   nothing
 end
 
-function fetch_openai_models(pid::AbstractString, base_url::AbstractString)
-  api_key = provider_api_key(pid)
+function fetch_openai_models(pid::AbstractString, base_url::AbstractString; config::Dict=Dict())
+  api_key = provider_api_key(pid, config)
   api_key === nothing && error("missing API key")
   res = GET("$(base_url)/v1/models", meta=Header("authorization" => "Bearer $api_key"))
   data = parse_json(read(res, String))
@@ -65,6 +69,19 @@ for (pid, url) in OPENAI_COMPATIBLE_URLS
 end
 
 live_model_fetchers["ollama"] = () -> fetch_ollama_models()
+
+function configured_live_model_fetchers(config::Dict)
+  fetchers = copy(live_model_fetchers)
+  for (pid, url) in OPENAI_COMPATIBLE_URLS
+    api_key = get(config, "$(pid)_key", nothing)
+    api_key === nothing && continue
+    cache_key = (pid, hash(string(api_key)))
+    fetchers[pid] = get!(configured_fetcher_cache, cache_key) do
+      () -> fetch_openai_models(pid, url; config)
+    end
+  end
+  fetchers
+end
 
 function parse_provider(pid, provider_data)
   logo = get_logo(get(provider_data, "logo_id", pid))
@@ -177,10 +194,13 @@ function provider_models(pid::AbstractString, registry::Dict=load_cache(); live_
   fallback = get(registry, pid, [])
   fetcher = get(live_fetchers, pid, nothing)
   fetcher === nothing && return fallback
+  cache_key = (String(pid), objectid(fetcher))
+  haskey(live_provider_cache, cache_key) && return live_provider_cache[cache_key]
   try
     live = fetcher()
     results = [enrich_live_model(r, registry) for r in live]
     sort_models!(results)
+    live_provider_cache[cache_key] = results
     results
   catch
     fallback
