@@ -34,6 +34,11 @@ function parse_openai_models(provider::AbstractString, data)
   [(provider=String(provider), id=String(m["id"]), name=String(m["id"])) for m in models if haskey(m, "id")]
 end
 
+function parse_ollama_models(data)
+  models = get(data, "models", [])
+  [(provider="ollama", id=String(m["name"]), name=String(m["name"])) for m in models if haskey(m, "name")]
+end
+
 function provider_api_key(pid::AbstractString)
   for env in get(PROVIDER_ENVS, pid, String[])
     key = get(ENV, env, nothing)
@@ -50,9 +55,16 @@ function fetch_openai_models(pid::AbstractString, base_url::AbstractString)
   parse_openai_models(pid, data)
 end
 
+function fetch_ollama_models(base_url::AbstractString="http://localhost:11434")
+  data = read(GET("$base_url/api/tags"), String) |> parse_json
+  parse_ollama_models(data)
+end
+
 for (pid, url) in OPENAI_COMPATIBLE_URLS
   live_model_fetchers[pid] = () -> fetch_openai_models(pid, url)
 end
+
+live_model_fetchers["ollama"] = () -> fetch_ollama_models()
 
 function parse_provider(pid, provider_data)
   logo = get_logo(get(provider_data, "logo_id", pid))

@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama XAI
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" search enrich_live_model provider_models provider_cache live_model_fetchers load_providers parse_openai_models Mtoken token
+@use "./models" search enrich_live_model provider_models provider_cache live_model_fetchers load_providers parse_openai_models parse_ollama_models Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -162,6 +162,18 @@ end
   @test [r.id for r in results] == ["gpt-4.1", "whisper-1"]
   @test all(r -> r.provider == "openai", results)
   @test all(r -> r.name == r.id, results)
+end
+
+@testset "ollama model list parser" begin
+  data = Dict("models" => Any[
+    Dict("name" => "llama3.2:latest", "details" => Dict("family" => "llama")),
+    Dict("name" => "gemma3:latest", "details" => Dict("family" => "gemma"))
+  ])
+
+  results = parse_ollama_models(data)
+
+  @test [r.id for r in results] == ["llama3.2:latest", "gemma3:latest"]
+  @test all(r -> r.provider == "ollama", results)
 end
 
 @testset "live provider source" begin
