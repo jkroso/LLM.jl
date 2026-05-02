@@ -93,7 +93,7 @@ end
 
 function default_model_info(provider::AbstractString, id::AbstractString; name::AbstractString=id)
   (provider=String(provider),
-   logo=get_logo(provider),
+   logo="",
    env=String[],
    id=String(id),
    name=String(name),

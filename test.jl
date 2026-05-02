@@ -130,6 +130,18 @@ end
   @test enriched.reasoning == true
   @test enriched.temperature == false
   @test enriched.vision == true
+
+  missing = (provider="openai", id="gpt-missing", name="gpt-missing")
+  fallback = enrich_live_model(missing, registry)
+
+  @test fallback.provider == "openai"
+  @test fallback.id == "gpt-missing"
+  @test fallback.name == "gpt-missing"
+  @test fallback.logo == ""
+  @test fallback.pricing == (0.0USD/Mtoken, 0.0USD/Mtoken)
+  @test fallback.reasoning == false
+  @test fallback.temperature == true
+  @test fallback.vision == false
 end
 
 @testset "pricing" begin
