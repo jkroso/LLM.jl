@@ -14,6 +14,7 @@ const LOGOS_DIR = joinpath(@__DIR__, "logos")
 const Days = 24 * 60 * 60 # in seconds
 
 const provider_cache = Dict{String, Vector}()
+const live_model_fetchers = Dict{String,Function}()
 
 function parse_provider(pid, provider_data)
   logo = get_logo(get(provider_data, "logo_id", pid))
@@ -71,7 +72,7 @@ function load_providers(pids)
   if !isempty(missing)
     all = load_cache()
     for pid in missing
-      provider_cache[pid] = get(all, pid, [])
+      provider_cache[pid] = provider_models(pid, all)
     end
   end
   vcat([provider_cache[pid] for pid in pids]...)
@@ -114,6 +115,24 @@ function enrich_live_model(live, registry::Dict)
   existing = get(index, model_key(base), nothing)
   existing === nothing && return base
   merge(base, existing)
+end
+
+function sort_models!(records)
+  sort!(records, by=r -> isempty(r.release_date) ? "0000-00-00" : r.release_date, rev=true)
+end
+
+function provider_models(pid::AbstractString, registry::Dict=load_cache(); live_fetchers=live_model_fetchers)
+  fallback = get(registry, pid, [])
+  fetcher = get(live_fetchers, pid, nothing)
+  fetcher === nothing && return fallback
+  live = try
+    fetcher()
+  catch
+    return fallback
+  end
+  results = [enrich_live_model(r, registry) for r in live]
+  sort_models!(results)
+  results
 end
 
 function all_models()

@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama XAI
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" search enrich_live_model Mtoken token
+@use "./models" search enrich_live_model provider_models Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -142,6 +142,33 @@ end
   @test fallback.reasoning == false
   @test fallback.temperature == true
   @test fallback.vision == false
+end
+
+@testset "live provider source" begin
+  registry = Dict("openai" => Any[
+    (provider="openai", logo="/tmp/openai.svg", env=["OPENAI_API_KEY"], id="gpt-old",
+     name="GPT Old", release_date="2025-01-01", reasoning=false, tool_call=false,
+     temperature=true, modalities=(input=["text"], output=["text"]), vision=false,
+     context=128000, pricing=(1.0USD/Mtoken, 2.0USD/Mtoken)),
+    (provider="openai", logo="/tmp/openai.svg", env=["OPENAI_API_KEY"], id="gpt-live",
+     name="GPT Live", release_date="2026-05-01", reasoning=true, tool_call=true,
+     temperature=false, modalities=(input=["text"], output=["text"]), vision=false,
+     context=256000, pricing=(3.0USD/Mtoken, 4.0USD/Mtoken))
+  ])
+
+  live_fetchers = Dict("openai" => () -> Any[(provider="openai", id="gpt-live", name="gpt-live")])
+  results = provider_models("openai", registry; live_fetchers)
+
+  @test length(results) == 1
+  @test results[1].id == "gpt-live"
+  @test results[1].pricing == (3.0USD/Mtoken, 4.0USD/Mtoken)
+
+  live_fetchers = Dict("openai" => () -> error("network failed"))
+  results = provider_models("openai", registry; live_fetchers)
+
+  @test length(results) == 2
+  @test any(r -> r.id == "gpt-old", results)
+  @test any(r -> r.id == "gpt-live", results)
 end
 
 @testset "pricing" begin
