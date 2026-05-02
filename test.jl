@@ -142,6 +142,11 @@ end
   @test fallback.reasoning == false
   @test fallback.temperature == true
   @test fallback.vision == false
+
+  live_only = (provider="openai", id="gpt-live-only", name="gpt-live-only")
+  live_only_fallback = enrich_live_model(live_only, registry)
+
+  @test live_only_fallback.env == ["OPENAI_API_KEY"]
 end
 
 @testset "live provider source" begin

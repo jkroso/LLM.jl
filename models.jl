@@ -113,10 +113,18 @@ function default_model_info(provider::AbstractString, id::AbstractString; name::
    pricing=zero_price)
 end
 
+function provider_default_info(provider::AbstractString, registry::Dict)
+  for r in get(registry, provider, [])
+    return (env=r.env,)
+  end
+  (env=String[],)
+end
+
 function enrich_live_model(live, registry::Dict)
   index = enrichment_index(registry)
   name = hasproperty(live, :name) ? live.name : live.id
-  base = default_model_info(live.provider, live.id; name)
+  defaults = provider_default_info(live.provider, registry)
+  base = merge(default_model_info(live.provider, live.id; name), defaults)
   existing = get(index, model_key(base), nothing)
   existing === nothing && return base
   merge(base, existing)
