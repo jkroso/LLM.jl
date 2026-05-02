@@ -1,4 +1,5 @@
 docs
+.worktrees
 api.json
 models.jls
 models.db
