@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama XAI
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" search enrich_live_model provider_models provider_cache live_model_fetchers load_providers Mtoken token
+@use "./models" search enrich_live_model provider_models provider_cache live_model_fetchers load_providers parse_openai_models Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -14,6 +14,8 @@
 @use Test...
 
 @use Base64...
+
+empty!(live_model_fetchers)
 
 struct TestPerson
   name::String
@@ -147,6 +149,19 @@ end
   live_only_fallback = enrich_live_model(live_only, registry)
 
   @test live_only_fallback.env == ["OPENAI_API_KEY"]
+end
+
+@testset "openai model list parser" begin
+  data = Dict("data" => Any[
+    Dict("id" => "gpt-4.1", "object" => "model"),
+    Dict("id" => "whisper-1", "object" => "model")
+  ])
+
+  results = parse_openai_models("openai", data)
+
+  @test [r.id for r in results] == ["gpt-4.1", "whisper-1"]
+  @test all(r -> r.provider == "openai", results)
+  @test all(r -> r.name == r.id, results)
 end
 
 @testset "live provider source" begin

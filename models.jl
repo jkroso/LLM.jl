@@ -1,6 +1,6 @@
 @use "github.com/jkroso/Units.jl" @defunit Dimension ["Money" USD]
 @use "github.com/jkroso/JSON.jl" parse_json write_json JSON
-@use "github.com/jkroso/HTTP.jl/client" GET POST send
+@use "github.com/jkroso/HTTP.jl/client" GET POST send Header
 @use Serialization: serialize, deserialize
 
 abstract type Tokens <: Dimension end
@@ -15,6 +15,44 @@ const Days = 24 * 60 * 60 # in seconds
 
 const provider_cache = Dict{String, Vector}()
 const live_model_fetchers = Dict{String,Function}()
+const OPENAI_COMPATIBLE_URLS = Dict(
+  "openai" => "https://api.openai.com",
+  "mistral" => "https://api.mistral.ai",
+  "deepseek" => "https://api.deepseek.com",
+  "xai" => "https://api.x.ai",
+)
+
+const PROVIDER_ENVS = Dict(
+  "openai" => ["OPENAI_API_KEY"],
+  "mistral" => ["MISTRAL_API_KEY"],
+  "deepseek" => ["DEEPSEEK_API_KEY"],
+  "xai" => ["XAI_API_KEY"],
+)
+
+function parse_openai_models(provider::AbstractString, data)
+  models = get(data, "data", [])
+  [(provider=String(provider), id=String(m["id"]), name=String(m["id"])) for m in models if haskey(m, "id")]
+end
+
+function provider_api_key(pid::AbstractString)
+  for env in get(PROVIDER_ENVS, pid, String[])
+    key = get(ENV, env, nothing)
+    key !== nothing && return key
+  end
+  nothing
+end
+
+function fetch_openai_models(pid::AbstractString, base_url::AbstractString)
+  api_key = provider_api_key(pid)
+  api_key === nothing && error("missing API key")
+  res = GET("$(base_url)/v1/models", meta=Header("authorization" => "Bearer $api_key"))
+  data = parse_json(read(res, String))
+  parse_openai_models(pid, data)
+end
+
+for (pid, url) in OPENAI_COMPATIBLE_URLS
+  live_model_fetchers[pid] = () -> fetch_openai_models(pid, url)
+end
 
 function parse_provider(pid, provider_data)
   logo = get_logo(get(provider_data, "logo_id", pid))
