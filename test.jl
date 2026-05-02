@@ -264,6 +264,12 @@ end
 
   @test length(unscoped) == 1
   @test unscoped[1].id == "gpt-live-only"
+
+  empty_registry = Dict()
+  live_only_fetchers = Dict("ollama" => () -> Any[(provider="ollama", id="gemma-live", name="gemma-live")])
+  live_only_results = search("gemma", registry=empty_registry, live_fetchers=live_only_fetchers)
+
+  @test [r.id for r in live_only_results] == ["gemma-live"]
 end
 
 @testset "pricing" begin

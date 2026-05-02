@@ -188,7 +188,7 @@ function provider_models(pid::AbstractString, registry::Dict=load_cache(); live_
 end
 
 function all_models(; registry=load_cache(), live_fetchers=live_model_fetchers)
-  pids = collect(keys(registry))
+  pids = union(collect(keys(registry)), collect(keys(live_fetchers)))
   result = isempty(pids) ? [] : vcat([provider_models(pid, registry; live_fetchers) for pid in pids]...)
   sort_models!(result)
 end
