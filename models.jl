@@ -77,6 +77,45 @@ function load_providers(pids)
   vcat([provider_cache[pid] for pid in pids]...)
 end
 
+function model_key(r)
+  (String(r.provider), String(r.id))
+end
+
+function enrichment_index(registry::Dict)
+  index = Dict{Tuple{String,String},Any}()
+  for records in values(registry)
+    for r in records
+      index[model_key(r)] = r
+    end
+  end
+  index
+end
+
+function default_model_info(provider::AbstractString, id::AbstractString; name::AbstractString=id)
+  (provider=String(provider),
+   logo=get_logo(provider),
+   env=String[],
+   id=String(id),
+   name=String(name),
+   release_date="",
+   reasoning=false,
+   tool_call=false,
+   temperature=true,
+   modalities=(input=["text"], output=["text"]),
+   vision=false,
+   context=nothing,
+   pricing=zero_price)
+end
+
+function enrich_live_model(live, registry::Dict)
+  index = enrichment_index(registry)
+  name = hasproperty(live, :name) ? live.name : live.id
+  base = default_model_info(live.provider, live.id; name)
+  existing = get(index, model_key(base), nothing)
+  existing === nothing && return base
+  merge(base, existing)
+end
+
 function all_models()
   result = collect(values(load_cache()))
   sort!(result, by=r->r.release_date, rev=true)

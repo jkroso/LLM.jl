@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama XAI
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" search Mtoken token
+@use "./models" search enrich_live_model Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -112,6 +112,24 @@ end
   first_model = ollama_results[1].id
   name_results = search("", first_model, allowed_providers="ollama", max_results=100)
   @test any(r -> r.provider == "ollama" && r.id == first_model, name_results)
+end
+
+@testset "live model enrichment" begin
+  registry = Dict("openai" => Any[
+    (provider="openai", logo="/tmp/openai.svg", env=["OPENAI_API_KEY"], id="gpt-live",
+     name="GPT Live", release_date="2026-05-01", reasoning=true, tool_call=true,
+     temperature=false, modalities=(input=["text", "image"], output=["text"]),
+     vision=true, context=128000, pricing=(1.0USD/Mtoken, 2.0USD/Mtoken))
+  ])
+
+  live = (provider="openai", id="gpt-live", name="gpt-live")
+  enriched = enrich_live_model(live, registry)
+
+  @test enriched.name == "GPT Live"
+  @test enriched.pricing == (1.0USD/Mtoken, 2.0USD/Mtoken)
+  @test enriched.reasoning == true
+  @test enriched.temperature == false
+  @test enriched.vision == true
 end
 
 @testset "pricing" begin
