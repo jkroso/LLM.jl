@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama XAI
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" search enrich_live_model provider_models Mtoken token
+@use "./models" search enrich_live_model provider_models provider_cache live_model_fetchers load_providers Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -169,6 +169,44 @@ end
   @test length(results) == 2
   @test any(r -> r.id == "gpt-old", results)
   @test any(r -> r.id == "gpt-live", results)
+
+  live_fetchers = Dict("openai" => () -> Any[(id="gpt-live", name="missing-provider")])
+  results = provider_models("openai", registry; live_fetchers)
+
+  @test length(results) == 2
+  @test any(r -> r.id == "gpt-old", results)
+  @test any(r -> r.id == "gpt-live", results)
+
+  prior_fetcher = get(live_model_fetchers, "openai", nothing)
+  prior_cache = get(provider_cache, "openai", nothing)
+  had_cache = haskey(provider_cache, "openai")
+  try
+    pop!(provider_cache, "openai", nothing)
+    attempts = Ref(0)
+    live_model_fetchers["openai"] = () -> begin
+      attempts[] += 1
+      attempts[] == 1 && error("transient failure")
+      Any[(provider="openai", id="gpt-cache-retry", name="gpt-cache-retry")]
+    end
+
+    first = load_providers(["openai"])
+    second = load_providers(["openai"])
+
+    @test !any(r -> r.id == "gpt-cache-retry", first)
+    @test any(r -> r.id == "gpt-cache-retry", second)
+    @test attempts[] == 2
+  finally
+    if prior_fetcher === nothing
+      pop!(live_model_fetchers, "openai", nothing)
+    else
+      live_model_fetchers["openai"] = prior_fetcher
+    end
+    if had_cache
+      provider_cache["openai"] = prior_cache
+    else
+      pop!(provider_cache, "openai", nothing)
+    end
+  end
 end
 
 @testset "pricing" begin

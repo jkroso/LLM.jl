@@ -68,14 +68,19 @@ function load_cache()
 end
 
 function load_providers(pids)
-  missing = filter(pid -> !haskey(provider_cache, pid), pids)
-  if !isempty(missing)
+  live = filter(pid -> haskey(live_model_fetchers, pid), pids)
+  missing = filter(pid -> !haskey(live_model_fetchers, pid) && !haskey(provider_cache, pid), pids)
+  live_results = Dict()
+  if !isempty(missing) || !isempty(live)
     all = load_cache()
     for pid in missing
       provider_cache[pid] = provider_models(pid, all)
     end
+    for pid in live
+      live_results[pid] = provider_models(pid, all)
+    end
   end
-  vcat([provider_cache[pid] for pid in pids]...)
+  vcat([haskey(live_model_fetchers, pid) ? live_results[pid] : provider_cache[pid] for pid in pids]...)
 end
 
 function model_key(r)
@@ -125,14 +130,14 @@ function provider_models(pid::AbstractString, registry::Dict=load_cache(); live_
   fallback = get(registry, pid, [])
   fetcher = get(live_fetchers, pid, nothing)
   fetcher === nothing && return fallback
-  live = try
-    fetcher()
+  try
+    live = fetcher()
+    results = [enrich_live_model(r, registry) for r in live]
+    sort_models!(results)
+    results
   catch
-    return fallback
+    fallback
   end
-  results = [enrich_live_model(r, registry) for r in live]
-  sort_models!(results)
-  results
 end
 
 function all_models()
