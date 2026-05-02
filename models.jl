@@ -117,20 +117,9 @@ function load_cache()
   end
 end
 
-function load_providers(pids)
-  live = filter(pid -> haskey(live_model_fetchers, pid), pids)
-  missing = filter(pid -> !haskey(live_model_fetchers, pid) && !haskey(provider_cache, pid), pids)
-  live_results = Dict()
-  if !isempty(missing) || !isempty(live)
-    all = load_cache()
-    for pid in missing
-      provider_cache[pid] = provider_models(pid, all)
-    end
-    for pid in live
-      live_results[pid] = provider_models(pid, all)
-    end
-  end
-  vcat([haskey(live_model_fetchers, pid) ? live_results[pid] : provider_cache[pid] for pid in pids]...)
+function load_providers(pids; registry=load_cache(), live_fetchers=live_model_fetchers)
+  isempty(pids) && return []
+  vcat([provider_models(pid, registry; live_fetchers) for pid in pids]...)
 end
 
 function model_key(r)
@@ -198,9 +187,10 @@ function provider_models(pid::AbstractString, registry::Dict=load_cache(); live_
   end
 end
 
-function all_models()
-  result = collect(values(load_cache()))
-  sort!(result, by=r->r.release_date, rev=true)
+function all_models(; registry=load_cache(), live_fetchers=live_model_fetchers)
+  pids = collect(keys(registry))
+  result = isempty(pids) ? [] : vcat([provider_models(pid, registry; live_fetchers) for pid in pids]...)
+  sort_models!(result)
 end
 
 function __init__()
@@ -279,11 +269,13 @@ function search(provider::AbstractString,
                 allowed_providers::Union{AbstractString,AbstractVector{<:AbstractString}}=String[],
                 reasoning::Union{Bool,Nothing}=nothing,
                 vision::Union{Bool,Nothing}=nothing,
-                max_results::Int=20)
+                max_results::Int=20,
+                registry=load_cache(),
+                live_fetchers=live_model_fetchers)
   pq = lowercase(provider)
   mq = lowercase(model)
   ap = allowed_providers isa AbstractString ? [allowed_providers] : allowed_providers
-  source = isempty(ap) ? all_models() : load_providers(ap)
+  source = isempty(ap) ? all_models(; registry, live_fetchers) : load_providers(ap; registry, live_fetchers)
   results = []
   for r in source
     matches(r; provider=pq, model=mq, reasoning, vision) || continue
@@ -298,11 +290,13 @@ function search(query::AbstractString="";
                 allowed_providers::Union{AbstractString,AbstractVector{<:AbstractString}}=String[],
                 reasoning::Union{Bool,Nothing}=nothing,
                 vision::Union{Bool,Nothing}=nothing,
-                max_results::Int=20)
-  isempty(query) && return search("", ""; allowed_providers, reasoning, vision, max_results)
+                max_results::Int=20,
+                registry=load_cache(),
+                live_fetchers=live_model_fetchers)
+  isempty(query) && return search("", ""; allowed_providers, reasoning, vision, max_results, registry, live_fetchers)
   q = lowercase(query)
   ap = allowed_providers isa AbstractString ? [allowed_providers] : allowed_providers
-  source = isempty(ap) ? all_models() : load_providers(ap)
+  source = isempty(ap) ? all_models(; registry, live_fetchers) : load_providers(ap; registry, live_fetchers)
   results = []
   for r in source
     occursin(q, lowercase(r.provider)) || occursin(q, lowercase(r.id)) || occursin(q, lowercase(r.name)) || continue

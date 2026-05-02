@@ -241,6 +241,31 @@ end
   end
 end
 
+@testset "search uses live-primary provider results" begin
+  registry = Dict("openai" => Any[
+    (provider="openai", logo="/tmp/openai.svg", env=["OPENAI_API_KEY"], id="gpt-registry-only",
+     name="Registry Only", release_date="2025-01-01", reasoning=false, tool_call=false,
+     temperature=true, modalities=(input=["text"], output=["text"]), vision=false,
+     context=128000, pricing=(1.0USD/Mtoken, 2.0USD/Mtoken)),
+    (provider="openai", logo="/tmp/openai.svg", env=["OPENAI_API_KEY"], id="gpt-live-only",
+     name="Live Only Enriched", release_date="2026-05-01", reasoning=false, tool_call=false,
+     temperature=true, modalities=(input=["text"], output=["text"]), vision=false,
+     context=128000, pricing=(3.0USD/Mtoken, 4.0USD/Mtoken))
+  ])
+  live_fetchers = Dict("openai" => () -> Any[(provider="openai", id="gpt-live-only", name="gpt-live-only")])
+
+  results = search("", "gpt", allowed_providers="openai", registry=registry, live_fetchers=live_fetchers)
+
+  @test length(results) == 1
+  @test results[1].id == "gpt-live-only"
+  @test results[1].pricing == (3.0USD/Mtoken, 4.0USD/Mtoken)
+
+  unscoped = search("gpt", registry=registry, live_fetchers=live_fetchers)
+
+  @test length(unscoped) == 1
+  @test unscoped[1].id == "gpt-live-only"
+end
+
 @testset "pricing" begin
   results = search("", "claude-haiku-4-5", allowed_providers="anthropic", max_results=1)
   (input_price, output_price) = results[1].pricing
