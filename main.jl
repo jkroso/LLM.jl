@@ -1,6 +1,6 @@
 @use "./providers"... OpenAI Anthropic Google Ollama XAI
 @use "./stream" from_json
-@use "./models" search
+@use "./models" search configured_live_model_fetchers
 
 const PROVIDER_URLS = Dict(
   "mistral"  => "https://api.mistral.ai",
@@ -43,7 +43,7 @@ function LLM(model::String, config::Dict=Dict())
     provider, model = split(model, '/'; limit=2)
   end
   ap = isempty(provider) ? String[] : [provider]
-  results = search("", model, allowed_providers=ap, max_results=1)
+  results = search("", model, allowed_providers=ap, max_results=1, live_fetchers=configured_live_model_fetchers(config))
   @assert length(results) == 1 "Model '$model' not found"
   LLM(results[1], config)
 end

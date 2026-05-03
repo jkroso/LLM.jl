@@ -2,7 +2,7 @@
 
 LLMs are fundamentally functions of the form `llm(msg::String)::String`. This library gives you all the LLMs in basically that form. Though you will probably want to take advantage of the unique features of each LLM. It enables that too.
 
-Model metadata (pricing, capabilities, env vars) is sourced from [models.dev](https://models.dev).
+Model availability is fetched from provider APIs where supported. Pricing and additional metadata are enriched from [models.dev](https://models.dev).
 
 ## Usage
 
@@ -161,7 +161,7 @@ end
 
 ## Token Usage & Pricing
 
-Pricing is stored on each LLM instance from [models.dev](https://models.dev) data. Token counts are available on the stream after reading:
+Pricing is stored on each LLM instance from [models.dev](https://models.dev) data. Live provider models that are not yet present in the enrichment registry use zero pricing until pricing metadata is available. Token counts are available on the stream after reading:
 
 ```julia
 stream = llm("hi")

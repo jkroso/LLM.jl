@@ -1,6 +1,6 @@
 @use "./providers" OpenAI Anthropic Google Ollama XAI
 @use "./providers/abstract_provider" SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat Message FinishReason Document json_schema
-@use "./models" search Mtoken token
+@use "./models" search enrich_live_model provider_models provider_cache live_model_fetchers live_provider_cache load_providers parse_openai_models parse_ollama_models provider_api_key configured_live_model_fetchers Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
 @use "./providers/anthropic" to_anthropic
@@ -14,6 +14,8 @@
 @use Test...
 
 @use Base64...
+
+empty!(live_model_fetchers)
 
 struct TestPerson
   name::String
@@ -112,6 +114,188 @@ end
   first_model = ollama_results[1].id
   name_results = search("", first_model, allowed_providers="ollama", max_results=100)
   @test any(r -> r.provider == "ollama" && r.id == first_model, name_results)
+end
+
+@testset "live model enrichment" begin
+  registry = Dict("openai" => Any[
+    (provider="openai", logo="/tmp/openai.svg", env=["OPENAI_API_KEY"], id="gpt-live",
+     name="GPT Live", release_date="2026-05-01", reasoning=true, tool_call=true,
+     temperature=false, modalities=(input=["text", "image"], output=["text"]),
+     vision=true, context=128000, pricing=(1.0USD/Mtoken, 2.0USD/Mtoken))
+  ])
+
+  live = (provider="openai", id="gpt-live", name="gpt-live")
+  enriched = enrich_live_model(live, registry)
+
+  @test enriched.name == "GPT Live"
+  @test enriched.pricing == (1.0USD/Mtoken, 2.0USD/Mtoken)
+  @test enriched.reasoning == true
+  @test enriched.temperature == false
+  @test enriched.vision == true
+
+  missing = (provider="openai", id="gpt-missing", name="gpt-missing")
+  fallback = enrich_live_model(missing, registry)
+
+  @test fallback.provider == "openai"
+  @test fallback.id == "gpt-missing"
+  @test fallback.name == "gpt-missing"
+  @test fallback.logo == ""
+  @test fallback.pricing == (0.0USD/Mtoken, 0.0USD/Mtoken)
+  @test fallback.reasoning == false
+  @test fallback.temperature == true
+  @test fallback.vision == false
+
+  live_only = (provider="openai", id="gpt-live-only", name="gpt-live-only")
+  live_only_fallback = enrich_live_model(live_only, registry)
+
+  @test live_only_fallback.env == ["OPENAI_API_KEY"]
+end
+
+@testset "openai model list parser" begin
+  data = Dict("data" => Any[
+    Dict("id" => "gpt-4.1", "object" => "model"),
+    Dict("id" => "whisper-1", "object" => "model")
+  ])
+
+  results = parse_openai_models("openai", data)
+
+  @test [r.id for r in results] == ["gpt-4.1", "whisper-1"]
+  @test all(r -> r.provider == "openai", results)
+  @test all(r -> r.name == r.id, results)
+
+  @test provider_api_key("openai", Dict("openai_key" => "sk-config")) == "sk-config"
+  configured = configured_live_model_fetchers(Dict("openai_key" => "sk-config"))
+  @test haskey(configured, "openai")
+  configured_again = configured_live_model_fetchers(Dict("openai_key" => "sk-config"))
+  @test configured["openai"] === configured_again["openai"]
+end
+
+@testset "ollama model list parser" begin
+  data = Dict("models" => Any[
+    Dict("name" => "llama3.2:latest", "details" => Dict("family" => "llama")),
+    Dict("name" => "gemma3:latest", "details" => Dict("family" => "gemma"))
+  ])
+
+  results = parse_ollama_models(data)
+
+  @test [r.id for r in results] == ["llama3.2:latest", "gemma3:latest"]
+  @test all(r -> r.provider == "ollama", results)
+end
+
+@testset "live provider source" begin
+  registry = Dict("openai" => Any[
+    (provider="openai", logo="/tmp/openai.svg", env=["OPENAI_API_KEY"], id="gpt-old",
+     name="GPT Old", release_date="2025-01-01", reasoning=false, tool_call=false,
+     temperature=true, modalities=(input=["text"], output=["text"]), vision=false,
+     context=128000, pricing=(1.0USD/Mtoken, 2.0USD/Mtoken)),
+    (provider="openai", logo="/tmp/openai.svg", env=["OPENAI_API_KEY"], id="gpt-live",
+     name="GPT Live", release_date="2026-05-01", reasoning=true, tool_call=true,
+     temperature=false, modalities=(input=["text"], output=["text"]), vision=false,
+     context=256000, pricing=(3.0USD/Mtoken, 4.0USD/Mtoken))
+  ])
+
+  live_fetchers = Dict("openai" => () -> Any[(provider="openai", id="gpt-live", name="gpt-live")])
+  results = provider_models("openai", registry; live_fetchers)
+
+  @test length(results) == 1
+  @test results[1].id == "gpt-live"
+  @test results[1].pricing == (3.0USD/Mtoken, 4.0USD/Mtoken)
+
+  live_fetchers = Dict("openai" => () -> error("network failed"))
+  results = provider_models("openai", registry; live_fetchers)
+
+  @test length(results) == 2
+  @test any(r -> r.id == "gpt-old", results)
+  @test any(r -> r.id == "gpt-live", results)
+
+  live_fetchers = Dict("openai" => () -> Any[(id="gpt-live", name="missing-provider")])
+  results = provider_models("openai", registry; live_fetchers)
+
+  @test length(results) == 2
+  @test any(r -> r.id == "gpt-old", results)
+  @test any(r -> r.id == "gpt-live", results)
+
+  prior_fetcher = get(live_model_fetchers, "openai", nothing)
+  prior_cache = get(provider_cache, "openai", nothing)
+  had_cache = haskey(provider_cache, "openai")
+  try
+    pop!(provider_cache, "openai", nothing)
+    attempts = Ref(0)
+    live_model_fetchers["openai"] = () -> begin
+      attempts[] += 1
+      attempts[] == 1 && error("transient failure")
+      Any[(provider="openai", id="gpt-cache-retry", name="gpt-cache-retry")]
+    end
+
+    first = load_providers(["openai"])
+    second = load_providers(["openai"])
+
+    @test !any(r -> r.id == "gpt-cache-retry", first)
+    @test any(r -> r.id == "gpt-cache-retry", second)
+    @test attempts[] == 2
+  finally
+    if prior_fetcher === nothing
+      pop!(live_model_fetchers, "openai", nothing)
+    else
+      live_model_fetchers["openai"] = prior_fetcher
+    end
+    if had_cache
+      provider_cache["openai"] = prior_cache
+    else
+      pop!(provider_cache, "openai", nothing)
+    end
+  end
+
+  live_provider_cache_before = copy(live_provider_cache)
+  try
+    empty!(live_provider_cache)
+    attempts = Ref(0)
+    live_fetchers = Dict("openai" => () -> begin
+      attempts[] += 1
+      Any[(provider="openai", id="gpt-cached", name="gpt-cached")]
+    end)
+
+    first = provider_models("openai", registry; live_fetchers)
+    second = provider_models("openai", registry; live_fetchers)
+
+    @test [r.id for r in first] == ["gpt-cached"]
+    @test [r.id for r in second] == ["gpt-cached"]
+    @test attempts[] == 1
+  finally
+    empty!(live_provider_cache)
+    merge!(live_provider_cache, live_provider_cache_before)
+  end
+end
+
+@testset "search uses live-primary provider results" begin
+  registry = Dict("openai" => Any[
+    (provider="openai", logo="/tmp/openai.svg", env=["OPENAI_API_KEY"], id="gpt-registry-only",
+     name="Registry Only", release_date="2025-01-01", reasoning=false, tool_call=false,
+     temperature=true, modalities=(input=["text"], output=["text"]), vision=false,
+     context=128000, pricing=(1.0USD/Mtoken, 2.0USD/Mtoken)),
+    (provider="openai", logo="/tmp/openai.svg", env=["OPENAI_API_KEY"], id="gpt-live-only",
+     name="Live Only Enriched", release_date="2026-05-01", reasoning=false, tool_call=false,
+     temperature=true, modalities=(input=["text"], output=["text"]), vision=false,
+     context=128000, pricing=(3.0USD/Mtoken, 4.0USD/Mtoken))
+  ])
+  live_fetchers = Dict("openai" => () -> Any[(provider="openai", id="gpt-live-only", name="gpt-live-only")])
+
+  results = search("", "gpt", allowed_providers="openai", registry=registry, live_fetchers=live_fetchers)
+
+  @test length(results) == 1
+  @test results[1].id == "gpt-live-only"
+  @test results[1].pricing == (3.0USD/Mtoken, 4.0USD/Mtoken)
+
+  unscoped = search("gpt", registry=registry, live_fetchers=live_fetchers)
+
+  @test length(unscoped) == 1
+  @test unscoped[1].id == "gpt-live-only"
+
+  empty_registry = Dict()
+  live_only_fetchers = Dict("ollama" => () -> Any[(provider="ollama", id="gemma-live", name="gemma-live")])
+  live_only_results = search("gemma", registry=empty_registry, live_fetchers=live_only_fetchers)
+
+  @test [r.id for r in live_only_results] == ["gemma-live"]
 end
 
 @testset "pricing" begin
