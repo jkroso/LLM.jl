@@ -501,6 +501,13 @@ end
   @test result["content"][1] == Dict("type" => "input_text", "text" => "what's this?")
   @test result["content"][2] == Dict("type" => "input_image", "image_url" => "https://example.com/img.png")
 
+  # UserMessage — with image data (base64 data URL, same shape the openai provider emits)
+  img_data = ImageData(UInt8[0xff, 0xd8], "image/jpeg", "high")
+  msg = UserMessage("describe", [img_data])
+  result = to_xai(msg)
+  @test result["content"][2]["type"] == "input_image"
+  @test startswith(result["content"][2]["image_url"], "data:image/jpeg;base64,")
+
   # AIMessage
   @test to_xai(AIMessage("hi")) == Dict("type" => "message", "role" => "assistant", "content" => "hi")
 

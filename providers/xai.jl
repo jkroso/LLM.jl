@@ -4,6 +4,7 @@
 @use "./abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Tool ToolCall FinishReason
 @use "../stream" TokenStream sse
 @use "../models" token
+@use Base64...
 
 mutable struct XAI <: LLM
   info::NamedTuple
@@ -36,6 +37,8 @@ end
 to_xai(msg::ToolResultMessage) = Dict("type" => "function_call_output", "call_id" => msg.tool_call_id, "output" => msg.content)
 
 to_xai(img::ImageURL) = Dict("type" => "input_image", "image_url" => img.url)
+
+to_xai(img::ImageData) = Dict("type" => "input_image", "image_url" => "data:$(img.mime);base64,$(base64encode(img.data))")
 
 to_xai(tool::Tool) = Dict("type" => "function", "name" => tool.name, "description" => tool.description, "parameters" => tool.parameters)
 
