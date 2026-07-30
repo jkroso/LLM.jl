@@ -6,7 +6,7 @@
 @use "./providers/anthropic" to_anthropic
 @use "./providers/openai" to_openai
 @use "./providers/ollama" to_ollama
-@use "./providers/xai" to_xai make_xai_parser
+@use "./providers/xai" to_xai make_xai_parser build_xai_payload
 @use "./stream" TokenStream sse from_json
 @use "./models" token
 @use "github.com/jkroso/HTTP.jl/client" Response Header
@@ -520,8 +520,34 @@ end
   @test to_xai(tool) == Dict("type" => "function", "name" => "calc", "description" => "Calculate", "parameters" => params)
 end
 
+@testset "xAI payload" begin
+  # temperature=true so the field is included when we assert on it; modalities
+  # and the rest are only needed to construct a valid info NamedTuple.
+  info = (id="grok-4", provider="xai", env=String[], name="Grok 4",
+          pricing=(0,0), release_date="", reasoning=false, temperature=true,
+          modalities=(input=String[], output=String[]))
+  llm = XAI(info, "fake")
+  msgs = Message[SystemMessage("be helpful"), UserMessage("hi"),
+                 AIMessage("hello"), ToolResultMessage("c1", "ok")]
+
+  # First turn: full input + instructions, no previous_response_id.
+  p1 = build_xai_payload(llm, msgs; previous_response_id=nothing)
+  @test !haskey(p1, "previous_response_id")
+  @test p1["instructions"] == "be helpful"
+  @test length(p1["input"]) == 3  # user + ai + tool result
+
+  # Continued turn: previous_response_id alone — xAI 400s if instructions
+  # is also set ("Argument not supported: instructions and previous_response_id
+  # together"). Only the latest non-system message goes in input.
+  p2 = build_xai_payload(llm, msgs; previous_response_id="resp_prev")
+  @test p2["previous_response_id"] == "resp_prev"
+  @test !haskey(p2, "instructions")
+  @test length(p2["input"]) == 1
+  @test p2["input"][1]["type"] == "function_call_output"
+end
+
 @testset "xAI parser" begin
-  llm = XAI((id="grok-4", provider="xai", env=String[], name="Grok 4", pricing=(0,0), release_date="", reasoning=false, modalities=(input=String[], output=String[])), "fake")
+  llm = XAI((id="grok-4", provider="xai", env=String[], name="Grok 4", pricing=(0,0), release_date="", reasoning=false, temperature=true, modalities=(input=String[], output=String[])), "fake")
 
   # Helper to create a TokenStream without a real HTTP response
   function make_test_stream(llm)

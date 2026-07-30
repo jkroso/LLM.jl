@@ -84,11 +84,18 @@ function make_xai_parser(llm::XAI)
   parse_event
 end
 
-function (llm::XAI)(messages::Vector{<:Message};
-                     temperature::Float64=0.7,
-                     max_tokens::Int=8192,
-                     tools::Vector=[],
-                     previous_response_id::Union{String,Nothing}=llm.last_response_id)
+"""Build the xAI `/v1/responses` request body (no network).
+
+xAI rejects `instructions` together with `previous_response_id` (HTTP 400
+"Argument not supported: instructions and previous_response_id together").
+On a continued turn the prior response already carries the system context, so
+we only send the new input item(s) and omit `instructions`.
+"""
+function build_xai_payload(llm::XAI, messages::Vector{<:Message};
+                           temperature::Float64=0.7,
+                           max_tokens::Int=8192,
+                           tools::Vector=[],
+                           previous_response_id::Union{String,Nothing}=llm.last_response_id)
   system_msgs = [m for m in messages if m isa SystemMessage]
   other_msgs = [m for m in messages if !(m isa SystemMessage)]
 
@@ -103,14 +110,22 @@ function (llm::XAI)(messages::Vector{<:Message};
     payload["input"] = [to_xai(other_msgs[end])]
   else
     payload["input"] = [to_xai(m) for m in other_msgs]
+    !isempty(system_msgs) &&
+      (payload["instructions"] = join([m.text for m in system_msgs], "\n"))
   end
-
-  !isempty(system_msgs) && (payload["instructions"] = join([m.text for m in system_msgs], "\n"))
 
   if !isempty(tools)
     payload["tools"] = [t isa Tool ? to_xai(t) : Dict("type" => t) for t in tools]
   end
+  payload
+end
 
+function (llm::XAI)(messages::Vector{<:Message};
+                     temperature::Float64=0.7,
+                     max_tokens::Int=8192,
+                     tools::Vector=[],
+                     previous_response_id::Union{String,Nothing}=llm.last_response_id)
+  payload = build_xai_payload(llm, messages; temperature, max_tokens, tools, previous_response_id)
   req = post(llm.session, llm.uri, meta=Header("authorization" => "Bearer $(llm.api_key)"))
   TokenStream(send(req, JSON(), payload), sse(make_xai_parser(llm)))
 end
