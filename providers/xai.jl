@@ -52,6 +52,13 @@ function make_xai_parser(llm::XAI)
     elseif typ == "response.output_text.delta"
       delta = get(evt, "delta", nothing)
       delta !== nothing && write(s.buf, delta)
+    elseif typ == "response.reasoning_summary_text.delta" || typ == "response.reasoning_text.delta"
+      # Reasoning models stream a summary of their thinking ahead of the
+      # answer (asked for by `reasoning.summary` in the payload). It goes to
+      # the side buffer so a reader can show it without it leaking into the
+      # text the model actually said.
+      delta = get(evt, "delta", nothing)
+      delta !== nothing && write(s.thinking, delta)
     elseif typ == "response.output_item.done"
       item = get(evt, "item", nothing)
       if item !== nothing && get(item, "type", "") == "function_call"
@@ -102,6 +109,9 @@ function build_xai_payload(llm::XAI, messages::Vector{<:Message};
   payload = Dict{String,Any}(
     "model" => llm.info.id,
     "max_output_tokens" => max_tokens,
+    # Reasoning models then stream `response.reasoning_summary_text.delta`
+    # events; non-reasoning models accept the key and send none.
+    "reasoning" => Dict("summary" => "auto"),
     "stream" => true)
   llm.info.temperature && (payload["temperature"] = temperature)
 
