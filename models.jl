@@ -214,7 +214,12 @@ function all_models(; registry=load_cache(), live_fetchers=live_model_fetchers)
 end
 
 function __init__()
-  if !isfile(API_JSON_PATH) || (time() - mtime(API_JSON_PATH)) > 3Days
+  # An image build (a sysimage or pkgimage) keeps whatever this finds, and must
+  # not go to the network for it: fetching models.dev or Ollama mid-build
+  # crashes Julia 1.12 on Windows with an access violation. A stale api.json
+  # bakes in fine; refreshing it is a job for run time.
+  stale = !Base.generating_output() && (time() - mtime(API_JSON_PATH)) > 3Days
+  if !isfile(API_JSON_PATH) || stale
     download("https://models.dev/api.json", API_JSON_PATH)
     add_ollama_models()
   end
