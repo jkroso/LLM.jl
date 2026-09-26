@@ -1,7 +1,7 @@
 @use "github.com/jkroso/HTTP.jl/client" Header parseURI send ["Session" Session]
 @use "github.com/jkroso/JSON.jl" parse_json JSON
 @use "github.com/jkroso/URI.jl" URI
-@use "./abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
+@use "./abstract_provider" LLM post_send finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
 @use "../stream" TokenStream sse
 @use "../models" Price token
 @use Base64...
@@ -154,10 +154,10 @@ function (llm::Anthropic)(messages::Vector{<:Message};
   reasoning_effort !== nothing && (output_config["effort"] = string(reasoning_effort))
   !isempty(output_config) && (payload["output_config"] = output_config)
 
-  req = post(llm.session, llm.uri, meta=Header(
+  res = post_send(llm.session, llm.uri, JSON(), payload; meta=Header(
     "x-api-key" => llm.api_key,
     "anthropic-version" => "2023-06-01"))
-  TokenStream(send(req, JSON(), payload), sse(make_anthropic_parser()))
+  TokenStream(res, sse(make_anthropic_parser()))
 end
 
 (llm::Anthropic)(system::String, user::String; kwargs...) =

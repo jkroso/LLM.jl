@@ -1,4 +1,4 @@
-@use "github.com/jkroso/HTTP.jl/client" Request Header connect ["Session" Session]
+@use "github.com/jkroso/HTTP.jl/client" Request Header connect send ["Session" Session]
 @use "github.com/jkroso/Prospects.jl/Enum" @Enum
 @use "github.com/jkroso/URI.jl" URI
 
@@ -8,7 +8,14 @@ Base.close(llm::LLM) = close(llm.session)
 
 finalize(llm::LLM) = try isopen(llm.session) && close(llm.session) catch end
 
+# Build a one-shot POST Request on the session's keep-alive socket (no send).
 post(s::Session, uri::URI; meta=Header()) = Request{:POST}(uri=uri, sock=connect(s), meta=meta)
+
+# Preferred: POST via Session.send, which reconnects on peer-closed keep-alive
+# (TLS reset / ECONNRESET). All providers should use this rather than post+send
+# so a dropped idle connection never surfaces as "LLM error" to the user.
+post_send(s::Session, uri::URI, mime, data; meta=Header()) =
+  send(s, uri, mime, data; meta=meta)
 
 # Content types
 

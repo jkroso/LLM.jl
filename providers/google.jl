@@ -1,7 +1,7 @@
 @use "github.com/jkroso/HTTP.jl/client" parseURI send ["Session" Session]
 @use "github.com/jkroso/JSON.jl" parse_json JSON
 @use "github.com/jkroso/URI.jl" URI
-@use "./abstract_provider" LLM post finalize
+@use "./abstract_provider" LLM post_send finalize
 @use "../stream" TokenStream sse
 @use "../models" Price token
 
@@ -42,6 +42,6 @@ function (llm::Google)(system::String, user::String; temperature::Float64=0.7)
     "contents" => [Dict("role" => "user", "parts" => [Dict("text" => user)])],
     "generationConfig" => Dict("temperature" => temperature))
   !isempty(system) && (payload["systemInstruction"] = Dict("parts" => [Dict("text" => system)]))
-  req = post(llm.session, llm.uri)
-  TokenStream(send(req, JSON(), payload), sse(google_parse_event))
+  res = post_send(llm.session, llm.uri, JSON(), payload)
+  TokenStream(res, sse(google_parse_event))
 end

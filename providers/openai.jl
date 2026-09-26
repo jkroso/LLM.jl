@@ -1,7 +1,7 @@
 @use "github.com/jkroso/HTTP.jl/client" Header parseURI send ["Session" Session]
 @use "github.com/jkroso/JSON.jl" parse_json JSON
 @use "github.com/jkroso/URI.jl" URI
-@use "./abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document
+@use "./abstract_provider" LLM post_send finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document
 @use "../models" Price token
 @use "../stream" TokenStream sse
 @use Base64...
@@ -137,8 +137,9 @@ function (llm::OpenAI)(messages::Vector{<:Message};
     payload["response_format"] = Dict("type" => fmt)
   end
   reasoning_effort !== nothing && (payload["reasoning_effort"] = string(reasoning_effort))
-  req = post(llm.session, llm.uri, meta=Header("authorization" => "Bearer $(llm.api_key)"))
-  TokenStream(send(req, JSON(), payload), sse(make_openai_parser()))
+  res = post_send(llm.session, llm.uri, JSON(), payload;
+                  meta=Header("authorization" => "Bearer $(llm.api_key)"))
+  TokenStream(res, sse(make_openai_parser()))
 end
 
 (llm::OpenAI)(system::String, user::String; kwargs...) =

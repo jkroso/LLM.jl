@@ -1,7 +1,7 @@
 @use "github.com/jkroso/HTTP.jl/client" parseURI send ["Session" Session]
 @use "github.com/jkroso/JSON.jl" parse_json JSON
 @use "github.com/jkroso/URI.jl" URI
-@use "./abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
+@use "./abstract_provider" LLM post_send finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Audio Image Tool ToolCall ReasoningEffort ResponseFormat FinishReason Document json_schema
 @use "../stream" TokenStream
 @use "../models" Price token
 @use Base64...
@@ -102,8 +102,8 @@ function (llm::Ollama)(messages::Vector{<:Message};
     payload["format"] = "json"
   end
   reasoning_effort !== nothing && (payload["think"] = true)
-  req = post(llm.session, llm.uri)
-  TokenStream(send(req, JSON(), payload), ollama_parse_line)
+  res = post_send(llm.session, llm.uri, JSON(), payload)
+  TokenStream(res, ollama_parse_line)
 end
 
 (llm::Ollama)(system::String, user::String; kwargs...) =

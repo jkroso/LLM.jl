@@ -1,7 +1,7 @@
 @use "github.com/jkroso/HTTP.jl/client" Header parseURI send ["Session" Session]
 @use "github.com/jkroso/JSON.jl" parse_json JSON
 @use "github.com/jkroso/URI.jl" URI
-@use "./abstract_provider" LLM post finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Tool ToolCall FinishReason
+@use "./abstract_provider" LLM post_send finalize Message SystemMessage UserMessage AIMessage ToolResultMessage ImageURL ImageData Tool ToolCall FinishReason
 @use "../stream" TokenStream sse
 @use "../models" token
 @use Base64...
@@ -136,8 +136,9 @@ function (llm::XAI)(messages::Vector{<:Message};
                      tools::Vector=[],
                      previous_response_id::Union{String,Nothing}=llm.last_response_id)
   payload = build_xai_payload(llm, messages; temperature, max_tokens, tools, previous_response_id)
-  req = post(llm.session, llm.uri, meta=Header("authorization" => "Bearer $(llm.api_key)"))
-  TokenStream(send(req, JSON(), payload), sse(make_xai_parser(llm)))
+  res = post_send(llm.session, llm.uri, JSON(), payload;
+                  meta=Header("authorization" => "Bearer $(llm.api_key)"))
+  TokenStream(res, sse(make_xai_parser(llm)))
 end
 
 (llm::XAI)(system::String, user::String; kwargs...) =
