@@ -3,12 +3,13 @@
 @use "./models" search enrich_live_model provider_models provider_cache live_model_fetchers live_provider_cache load_providers parse_openai_models parse_ollama_models provider_api_key configured_live_model_fetchers Mtoken token
 @use "github.com/jkroso/Units.jl/Money" USD
 @use "github.com/jkroso/JSON.jl/write" JSON
+@use "github.com/jkroso/JSON.jl" parse_json
 @use "./providers/anthropic" to_anthropic
 @use "./providers/openai" to_openai
 @use "./providers/ollama" to_ollama
 @use "./providers/xai" to_xai make_xai_parser build_xai_payload
 @use "./stream" TokenStream sse from_json
-@use "./models" token data_dir refresh refresh_or_warn read_cache load_cache REGISTRY SOURCE_DIR
+@use "./models" token data_dir refresh refresh_or_warn read_cache load_cache REGISTRY SOURCE_DIR parse_provider
 @use "github.com/jkroso/HTTP.jl/client" Response Header
 @use "." LLM
 @use Test...
@@ -16,6 +17,38 @@
 @use Base64...
 
 empty!(live_model_fetchers)
+
+# A small model list in models.dev's format. The tests below use it instead of
+# the real one, so they don't depend on which models models.dev lists today,
+# or which ones Ollama has on this machine.
+const FIXTURE = parse_json("""{
+  "anthropic": {"id": "anthropic", "env": ["ANTHROPIC_API_KEY"], "models": {
+    "claude-haiku-4-5": {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "release_date": "2025-10-15",
+      "reasoning": true, "tool_call": true, "modalities": {"input": ["text", "image"], "output": ["text"]},
+      "cost": {"input": 1, "output": 5}, "limit": {"context": 200000}},
+    "claude-sonnet-4-5": {"id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "release_date": "2025-09-29",
+      "reasoning": true, "tool_call": true, "modalities": {"input": ["text", "image"], "output": ["text"]}},
+    "claude-3-5-haiku": {"id": "claude-3-5-haiku", "name": "Claude Haiku 3.5", "release_date": "2024-10-22",
+      "modalities": {"input": ["text"], "output": ["text"]}}}},
+  "openai": {"id": "openai", "env": ["OPENAI_API_KEY"], "models": {
+    "gpt-4o": {"id": "gpt-4o", "name": "GPT-4o", "release_date": "2024-05-13",
+      "modalities": {"input": ["text", "image"], "output": ["text"]}},
+    "o3-mini": {"id": "o3-mini", "name": "o3-mini", "release_date": "2025-01-31", "reasoning": true,
+      "temperature": false, "modalities": {"input": ["text"], "output": ["text"]}}}},
+  "google": {"id": "google", "env": ["GOOGLE_API_KEY"], "models": {
+    "gemini-2.0-flash": {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "release_date": "2024-12-11",
+      "modalities": {"input": ["text", "image"], "output": ["text"]}}}},
+  "mistral": {"id": "mistral", "env": ["MISTRAL_API_KEY"], "models": {
+    "mistral-large-latest": {"id": "mistral-large-latest", "name": "Mistral Large", "release_date": "2024-11-18"}}},
+  "deepseek": {"id": "deepseek", "env": ["DEEPSEEK_API_KEY"], "models": {
+    "deepseek-chat": {"id": "deepseek-chat", "name": "DeepSeek Chat", "release_date": "2024-12-26"}}},
+  "xai": {"id": "xai", "env": ["XAI_API_KEY"], "models": {
+    "grok-2": {"id": "grok-2", "name": "Grok 2", "release_date": "2024-08-20"}}},
+  "ollama": {"id": "ollama", "name": "Ollama", "logo_id": "ollama-cloud", "models": {
+    "gemma4:31b": {"id": "gemma4:31b", "name": "gemma4:31b", "open_weights": true},
+    "llama3.2:3b": {"id": "llama3.2:3b", "name": "llama3.2:3b", "open_weights": true}}}
+}""")
+REGISTRY[] = Dict{String,Vector}(pid => parse_provider(pid, p) for (pid, p) in FIXTURE)
 
 struct TestPerson
   name::String
@@ -105,12 +138,12 @@ end
   # no results for nonsense query
   @test isempty(search("", "zzz_nonexistent_model_xyz", allowed_providers="openai"))
 
-  # local ollama models show up in search results
+  # Ollama's models show up in search results
   ollama_results = search("", "", allowed_providers="ollama", max_results=100)
   @test length(ollama_results) > 0
   @test all(r -> r.provider == "ollama", ollama_results)
   @test all(r -> hasproperty(r, :id) && hasproperty(r, :name) && hasproperty(r, :modalities), ollama_results)
-  # searching by name should also find local ollama models
+  # searching by name should also find Ollama's models
   first_model = ollama_results[1].id
   name_results = search("", first_model, allowed_providers="ollama", max_results=100)
   @test any(r -> r.provider == "ollama" && r.id == first_model, name_results)
