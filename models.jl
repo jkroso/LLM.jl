@@ -8,10 +8,37 @@ abstract type Tokens <: Dimension end
 
 const Price = USD/Mtoken
 const zero_price = (0.0USD/Mtoken, 0.0USD/Mtoken)
-const API_JSON_PATH = joinpath(@__DIR__, "api.json")
-const CACHE_PATH = joinpath(@__DIR__, "models.jls")
-const LOGOS_DIR = joinpath(@__DIR__, "logos")
 const Days = 24 * 60 * 60 # in seconds
+
+# The folder this file was loaded from. An image built from it keeps the
+# builder's path, so nothing may assume the folder exists when it runs.
+const SOURCE_DIR = @__DIR__
+
+"""
+The folder that keeps the model list between runs: models.dev's `api.json`,
+`models.jls` (its parse), and the logos `get_logo` downloads.
+
+`LLM_DATA_DIR` names it. Without that it's the folder this file was loaded
+from, while that folder still holds this file. An app built into an image
+ships without the source, and with the builder's path for it, so there the
+list goes in ~/.cache/LLM.jl. Worked out on each call, never in a constant,
+for the same reason.
+"""
+function data_dir()
+  dir = get(ENV, "LLM_DATA_DIR", "")
+  isempty(dir) || return dir
+  # On another user's home, stat fails with EACCES rather than saying no
+  source = try isfile(joinpath(SOURCE_DIR, "models.jl")) catch; false end
+  source ? SOURCE_DIR : joinpath(homedir(), ".cache", "LLM.jl")
+end
+
+api_json_path() = joinpath(data_dir(), "api.json")
+cache_path() = joinpath(data_dir(), "models.jls")
+logos_dir() = joinpath(data_dir(), "logos")
+
+# The model list in use. An image built from this file keeps the one it was
+# built with, so a machine that has never reached models.dev still has one.
+const REGISTRY = Ref{Dict{String,Vector}}()
 
 const provider_cache = Dict{String, Vector}()
 const live_model_fetchers = Dict{String,Function}()
@@ -84,7 +111,9 @@ function configured_live_model_fetchers(config::Dict)
 end
 
 function parse_provider(pid, provider_data)
-  logo = get_logo(get(provider_data, "logo_id", pid))
+  # The logo's id at models.dev. `get_logo` downloads it when something shows
+  # it, rather than every provider's logo each time the list is parsed.
+  logo = String(get(provider_data, "logo_id", pid))
   env = get(provider_data, "env", String[])
   models = get(provider_data, "models", nothing)
   models === nothing && return []
@@ -115,23 +144,29 @@ end
 
 "Rebuild the on-disk provider cache from api.json and return the new dict"
 function build_cache()
-  data = open(parse_json, API_JSON_PATH)
+  data = open(parse_json, api_json_path())
   cache = Dict{String, Vector}()
   for (pid, provider_data) in data
     cache[pid] = parse_provider(pid, provider_data)
   end
-  open(io->serialize(io, cache), CACHE_PATH, "w")
+  open(io->serialize(io, cache), cache_path(), "w")
   cache
 end
 
 "Deserialize the provider cache, rebuilding from api.json if the file is missing or references modules that no longer load"
-function load_cache()
-  isfile(CACHE_PATH) || return build_cache()
+function read_cache()::Dict{String,Vector}
+  isfile(cache_path()) || return build_cache()
   try
-    deserialize(CACHE_PATH)
+    deserialize(cache_path())
   catch
     build_cache()
   end
+end
+
+"The model list in use, read from disk the first time it's asked for"
+function load_cache()
+  isassigned(REGISTRY) || (REGISTRY[] = read_cache())
+  REGISTRY[]
 end
 
 function load_providers(pids; registry=load_cache(), live_fetchers=live_model_fetchers)
@@ -214,18 +249,58 @@ function all_models(; registry=load_cache(), live_fetchers=live_model_fetchers)
 end
 
 function __init__()
-  # An image build (a sysimage or pkgimage) keeps whatever this finds, and must
-  # not go to the network for it: fetching models.dev or Ollama mid-build
-  # crashes Julia 1.12 on Windows with an access violation. A stale api.json
-  # bakes in fine; refreshing it is a job for run time.
-  stale = !Base.generating_output() && (time() - mtime(API_JSON_PATH)) > 3Days
-  if !isfile(API_JSON_PATH) || stale
-    download("https://models.dev/api.json", API_JSON_PATH)
-    add_ollama_models()
+  if Base.generating_output()
+    # An image build (a sysimage or pkgimage) keeps the list this loads, and
+    # must not go to the network to refresh it: fetching models.dev or Ollama
+    # mid-build crashes Julia 1.12 on Windows with an access violation. A stale
+    # api.json bakes in fine; refreshing it is a job for run time.
+    isfile(api_json_path()) || fetch_api_json()
+    REGISTRY[] = read_cache()
+  elseif isassigned(REGISTRY)
+    # An image starting. It has a list, so it needn't wait for models.dev.
+    Threads.@spawn refresh_or_warn()
+  else
+    refresh_or_warn()
   end
-  if !isfile(CACHE_PATH) || mtime(CACHE_PATH) < mtime(API_JSON_PATH)
-    build_cache()
+end
+
+"""
+Download api.json again if it's missing or more than 3 days old, and parse it
+again if models.jls is older than it. A list already in use is replaced by
+the one on disk, which is this machine's and at most 3 days old.
+"""
+function refresh()
+  json = api_json_path()
+  (!isfile(json) || time() - mtime(json) > 3Days) && fetch_api_json()
+  if !isfile(cache_path()) || mtime(cache_path()) < mtime(json)
+    REGISTRY[] = build_cache()
+  elseif isassigned(REGISTRY)
+    REGISTRY[] = read_cache()
   end
+end
+
+# Offline, or with nowhere to write, the list in use is still a good one
+function refresh_or_warn()
+  try
+    refresh()
+  catch e
+    @warn "Couldn't refresh the list of models" data_dir() exception=e
+  end
+end
+
+"Download models.dev's list of models into api.json, and add the ones Ollama has here"
+function fetch_api_json()
+  json = api_json_path()
+  mkpath(dirname(json))
+  # A download cut short must not leave an api.json that looks fresh but won't parse
+  tmp = tempname(dirname(json))
+  try
+    download("https://models.dev/api.json", tmp)
+    mv(tmp, json; force=true)
+  finally
+    rm(tmp; force=true)
+  end
+  add_ollama_models()
 end
 
 function add_ollama_models(base_url::String="http://localhost:11434")
@@ -236,7 +311,7 @@ function add_ollama_models(base_url::String="http://localhost:11434")
   end
   model_list = get(models, "models", nothing)
   model_list === nothing && return
-  data = open(parse_json, API_JSON_PATH)
+  data = open(parse_json, api_json_path())
   ollama = get!(data, "ollama") do
     Dict{String,Any}("id" => "ollama", "name" => "Ollama", "logo_id" => "ollama-cloud", "models" => Dict{String,Any}())
   end
@@ -263,7 +338,7 @@ function add_ollama_models(base_url::String="http://localhost:11434")
       "modalities" => Dict("input" => input_modalities, "output" => ["text"]),
       "limit" => Dict{String,Any}("context" => context))
   end
-  open(API_JSON_PATH, "w") do io
+  open(api_json_path(), "w") do io
     write_json(io, data)
   end
 end
@@ -333,9 +408,10 @@ function search(query::AbstractString="";
   results
 end
 
+"The path of a model's `logo`, downloaded from models.dev the first time it's asked for"
 function get_logo(provider::AbstractString)
-  mkpath(LOGOS_DIR)
-  path = joinpath(LOGOS_DIR, "$provider.svg")
+  mkpath(logos_dir())
+  path = joinpath(logos_dir(), "$provider.svg")
   isfile(path) || download("https://models.dev/logos/$provider.svg", path)
   path
 end

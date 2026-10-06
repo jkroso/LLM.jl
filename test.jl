@@ -8,7 +8,7 @@
 @use "./providers/ollama" to_ollama
 @use "./providers/xai" to_xai make_xai_parser build_xai_payload
 @use "./stream" TokenStream sse from_json
-@use "./models" token
+@use "./models" token data_dir refresh refresh_or_warn read_cache load_cache REGISTRY SOURCE_DIR
 @use "github.com/jkroso/HTTP.jl/client" Response Header
 @use "." LLM
 @use Test...
@@ -586,4 +586,32 @@ end
   s2.parse_line(s2, """data: {"type":"response.completed","response":{"id":"resp_xyz","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":5,"output_tokens":100}}}""")
   @test s2.finish_reason == FinishReason.length
   @test s2.done == true
+end
+
+@testset "model list on disk" begin
+  had = isassigned(REGISTRY) ? REGISTRY[] : nothing
+  @test withenv(data_dir, "LLM_DATA_DIR" => nothing) == SOURCE_DIR
+  try
+    mktempdir() do dir
+      withenv("LLM_DATA_DIR" => dir) do
+        @test data_dir() == dir
+        # api.json is fresh, so this parses it without going to the network
+        write(joinpath(dir, "api.json"), """{"acme": {"id": "acme", "logo_id": "acme-logo",
+          "models": {"m1": {"id": "m1", "name": "M1", "release_date": "2026-01-01"}}}}""")
+        refresh()
+        @test isfile(joinpath(dir, "models.jls"))
+        @test load_cache()["acme"][1].id == "m1"
+        # A model's logo is its id at models.dev, and nothing was downloaded
+        @test load_cache()["acme"][1].logo == "acme-logo"
+        @test !isdir(joinpath(dir, "logos"))
+        # A list that won't parse leaves the one in use alone
+        sleep(0.01)
+        write(joinpath(dir, "api.json"), "not json")
+        @test_logs (:warn, r"Couldn't refresh") match_mode=:any refresh_or_warn()
+        @test load_cache()["acme"][1].id == "m1"
+      end
+    end
+  finally
+    REGISTRY[] = had === nothing ? read_cache() : had
+  end
 end
