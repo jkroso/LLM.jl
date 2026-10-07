@@ -272,10 +272,8 @@ function __init__()
     REFRESHED_IN[] = getpid()
   end
   # An image starting has a list already, and refreshes it the first time
-  # it's asked for one (`load_cache`), not here. A download started while an
-  # image's modules start crashed libcurl on Windows (EXCEPTION_ACCESS_VIOLATION
-  # in curl_multi_socket_action), though the same download works once the
-  # program runs.
+  # it's asked for one (`load_cache`), not here: a program that never asks
+  # for a model makes no request.
 end
 
 """
@@ -309,7 +307,10 @@ function fetch_api_json()
   # A download cut short must not leave an api.json that looks fresh but won't parse
   tmp = json * ".part"
   try
-    download("https://models.dev/api.json", tmp)
+    # Through HTTP.jl, not `download`: on Windows a libcurl download still
+    # running when the program exits crashes it (EXCEPTION_ACCESS_VIOLATION in
+    # Downloads' timer callback), and the refresh runs in the background.
+    write(tmp, read(GET("https://models.dev/api.json"), String))
     mv(tmp, json; force=true)
   finally
     rm(tmp; force=true)
@@ -426,7 +427,7 @@ end
 function get_logo(provider::AbstractString)
   mkpath(logos_dir())
   path = joinpath(logos_dir(), "$provider.svg")
-  isfile(path) || download("https://models.dev/logos/$provider.svg", path)
+  isfile(path) || write(path, read(GET("https://models.dev/logos/$provider.svg"), String))
   path
 end
 
