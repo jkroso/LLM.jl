@@ -39,6 +39,9 @@ logos_dir() = joinpath(data_dir(), "logos")
 # The model list in use. An image built from this file keeps the one it was
 # built with, so a machine that has never reached models.dev still has one.
 const REGISTRY = Ref{Dict{String,Vector}}()
+# The process that last refreshed REGISTRY. An image keeps the builder's, so
+# every process started from one refreshes once.
+const REFRESHED_IN = Ref(0)
 
 const provider_cache = Dict{String, Vector}()
 const live_model_fetchers = Dict{String,Function}()
@@ -163,9 +166,17 @@ function read_cache()::Dict{String,Vector}
   end
 end
 
-"The model list in use, read from disk the first time it's asked for"
+"""
+The model list in use, read from disk the first time it's asked for. The
+first call in a process that started from an image also refreshes it, in the
+background, so the caller needn't wait for models.dev.
+"""
 function load_cache()
   isassigned(REGISTRY) || (REGISTRY[] = read_cache())
+  if REFRESHED_IN[] != getpid() && !Base.generating_output()
+    REFRESHED_IN[] = getpid()
+    Threads.@spawn refresh_or_warn()
+  end
   REGISTRY[]
 end
 
@@ -256,12 +267,15 @@ function __init__()
     # api.json bakes in fine; refreshing it is a job for run time.
     isfile(api_json_path()) || fetch_api_json()
     REGISTRY[] = read_cache()
-  elseif isassigned(REGISTRY)
-    # An image starting. It has a list, so it needn't wait for models.dev.
-    Threads.@spawn refresh_or_warn()
-  else
+  elseif !isassigned(REGISTRY)
     refresh_or_warn()
+    REFRESHED_IN[] = getpid()
   end
+  # An image starting has a list already, and refreshes it the first time
+  # it's asked for one (`load_cache`), not here. A download started while an
+  # image's modules start crashed libcurl on Windows (EXCEPTION_ACCESS_VIOLATION
+  # in curl_multi_socket_action), though the same download works once the
+  # program runs.
 end
 
 """
@@ -293,7 +307,7 @@ function fetch_api_json()
   json = api_json_path()
   mkpath(dirname(json))
   # A download cut short must not leave an api.json that looks fresh but won't parse
-  tmp = tempname(dirname(json))
+  tmp = json * ".part"
   try
     download("https://models.dev/api.json", tmp)
     mv(tmp, json; force=true)

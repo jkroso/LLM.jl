@@ -9,7 +9,7 @@
 @use "./providers/ollama" to_ollama
 @use "./providers/xai" to_xai make_xai_parser build_xai_payload
 @use "./stream" TokenStream sse from_json
-@use "./models" token data_dir refresh refresh_or_warn read_cache load_cache REGISTRY SOURCE_DIR parse_provider
+@use "./models" token data_dir refresh refresh_or_warn read_cache load_cache REGISTRY REFRESHED_IN SOURCE_DIR parse_provider
 @use "github.com/jkroso/HTTP.jl/client" Response Header
 @use "." LLM
 @use Test...
@@ -642,6 +642,15 @@ end
         write(joinpath(dir, "api.json"), "not json")
         @test_logs (:warn, r"Couldn't refresh") match_mode=:any refresh_or_warn()
         @test load_cache()["acme"][1].id == "m1"
+        # A process started from an image refreshes the list in the background
+        # the first time it's asked for one, and answers with the old list meanwhile
+        sleep(0.01)
+        write(joinpath(dir, "api.json"), """{"acme": {"id": "acme",
+          "models": {"m2": {"id": "m2", "name": "M2", "release_date": "2026-02-01"}}}}""")
+        REFRESHED_IN[] = 0
+        @test load_cache()["acme"][1].id == "m1"
+        @test REFRESHED_IN[] == getpid()
+        @test timedwait(() -> load_cache()["acme"][1].id == "m2", 10) === :ok
       end
     end
   finally
